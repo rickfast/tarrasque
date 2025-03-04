@@ -1,10 +1,136 @@
-use sqlparser::ast::{BinaryOperator, Expr, SelectItem, SetExpr, Statement};
-use sqlparser::parser::Parser;
 use crate::db::dialect::CassandraDialect;
-use crate::db::execution::{ExecutionGraph, Op};
+use crate::db::schema::{ColumnMetadata, Keyspace, TableMetadata};
+use crate::serde::reader::Value;
+use sqlparser::ast::{BinaryOperator, Expr, Select, SelectItem, SetExpr, Statement, TableFactor};
+use sqlparser::parser::Parser;
+use std::ops::Deref;
+use std::os::macos::raw::stat;
+use anyhow::anyhow;
+
+struct ParsedQuery {
+    partition_key: Option<Vec<String>>,
+    clustering_key: Option<Vec<String>>,
+    projection: Vec<ParsedExpr>,
+    filters: Vec<ParsedExpr>,
+    table: TableMetadata,
+}
+
+enum ParsedExpr {
+    Column(ProjectedColumn),
+    Function(FunctionHandle, Vec<ParsedExpr>),
+    Literal(Value),
+}
+
+type FunctionHandle = String;
+
+struct ProjectedColumn {
+    resolved_name: String,
+    column_metadata: ColumnMetadata,
+}
+
+// Parse SQL query
+fn parse<'a>(sql: String, keyspace: Keyspace) -> anyhow::Result<ParsedQuery> {
+    let dialect = CassandraDialect {};
+    let statements = Parser::parse_sql(&dialect, &sql)?;
+
+    if statements.len() != 1 {
+        return Err(anyhow::anyhow!("Only one statement is supported"));
+    }
+
+    let statement = &statements[0];
+
+    let x = if let Statement::Query(query) = statement {
+        if let SetExpr::Select(select) = &query.body.deref() {
+            let table = derive_table_metadata(&keyspace, &select)?;
+            let projection = derive_projection(&select, &table)?;
+
+            Ok(ParsedQuery {
+                filters: vec![],
+                partition_key: None,
+                clustering_key: None,
+                projection,
+                table: table.clone(),
+            })
+        } else { Err(anyhow!("")) }
+    } else {
+        Err(anyhow::anyhow!("Only SELECT statements are supported"))
+    };
+
+    x
+}
+
+fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Result<Vec<ParsedExpr>> {
+    select
+        .projection
+        .iter()
+        .map(|item| match item {
+            SelectItem::UnnamedExpr(expr) => match expr {
+                Expr::Identifier(ident) => {
+                    let column_name = ident.value.clone();
+                    let column_metadata = table
+                        .columns
+                        .get(&column_name);
+
+                    match column_metadata {
+                        Some(metadata) => {
+                            Ok(ParsedExpr::Column(ProjectedColumn {
+                                resolved_name: column_name,
+                                column_metadata: metadata.clone(),
+                            }))
+                        },
+                        None => Err(anyhow!("Error"))
+                    }
+                }
+                _ => unimplemented!(),
+            },
+            SelectItem::ExprWithAlias { expr, alias } => match expr {
+                Expr::Identifier(ident) => {
+                    let column_name = ident.value.clone();
+                    let column_metadata = table
+                        .columns
+                        .get(&column_name);
+                    match column_metadata {
+                        Some(metadata) => {
+                            Ok(ParsedExpr::Column(ProjectedColumn {
+                                resolved_name: alias.value.clone(),
+                                column_metadata: metadata.clone(),
+                            }))
+                        },
+                        None => Err(anyhow!("Error"))
+                    }
+                }
+                _ => unimplemented!(),
+            },
+            _ => unimplemented!(),
+        })
+        .collect::<anyhow::Result<Vec<ParsedExpr>>>()
+}
+
+fn derive_table_metadata<'a>(
+    keyspace: &'a Keyspace,
+    select: &Box<Select>,
+) -> anyhow::Result<&'a TableMetadata> {
+    let table = match &select.from.first().unwrap().relation {
+        TableFactor::Table {
+            name, ..
+        } => {
+            let table_name = name.to_string();
+            keyspace
+                .tables
+                .get(&table_name)
+                .ok_or_else(|| anyhow::anyhow!("Table not found"))?
+        }
+        _ => unimplemented!(),
+    };
+    Ok(table)
+}
 
 // Function to check if the WHERE clause uses a partition key
-fn analyze_where_clause(expr: &Expr, partition_key: &str, clustering_key: Option<&str>) -> (bool, bool) {
+fn analyze_where_clause(
+    expr: &Expr,
+    partition_key: &str,
+    clustering_key: Option<&str>,
+) -> (bool, bool) {
     match expr {
         Expr::BinaryOp { left, op, right } => {
             if let Expr::Identifier(ident) = &**left {
@@ -24,67 +150,78 @@ fn analyze_where_clause(expr: &Expr, partition_key: &str, clustering_key: Option
     (false, false) // No partition or clustering key match
 }
 
-// Build Execution Graph
-fn build_execution_graph(sql: &str, partition_key: &str, clustering_key: Option<&str>) -> ExecutionGraph {
-    let dialect = CassandraDialect {}; // Use Generic SQL parser
-    let statements = Parser::parse_sql(&dialect, sql).expect("Failed to parse SQL");
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::data::ColumnType;
+    use crate::db::schema::{ColumnMetadata, Key, Keyspace, Kind, TableMetadata};
+    use indexmap::IndexMap;
+    use std::collections::HashMap;
 
-    let mut graph = ExecutionGraph::new();
-    let mut last_node = None;
+    #[test]
+    fn test_parse() {
+        // Create a mock keyspace with a table and columns
+        let mut columns = IndexMap::new();
+        columns.insert(
+            "id".to_string(),
+            ColumnMetadata {
+                name: "id".to_string(),
+                column_type: ColumnType::Smallint,
+                kind: Kind::PartitionKey,
+            },
+        );
+        columns.insert(
+            "name".to_string(),
+            ColumnMetadata {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+                kind: Kind::Regular,
+            },
+        );
 
-    for statement in statements {
-        if let Statement::Query(query) = statement {
-            if let SetExpr::Select(select) = *query.body {
+        let table = TableMetadata {
+            name: "users".to_string(),
+            columns,
+            keyspace: "test_keyspace".to_string(),
+            partition_key: Key::Single("id".to_string()),
+            cluster_key: None,
+        };
 
-                // Step 1: Determine if it's a partition lookup or full table scan
-                let mut is_partition_lookup = false;
-                let mut is_clustering_used = false;
+        let mut tables = HashMap::new();
+        tables.insert("users".to_string(), table);
 
-                if let Some(selection) = &select.selection {
-                    (is_partition_lookup, is_clustering_used) = analyze_where_clause(selection, partition_key, clustering_key);
-                }
+        let keyspace = Keyspace {
+            name: "test_keyspace".to_string(),
+            tables,
+        };
 
-                let table_name = select
-                    .from
-                    .get(0)
-                    .map(|t| t.relation.to_string())
-                    .unwrap_or_else(|| "UNKNOWN_TABLE".to_string());
+        // Define a simple SQL query
+        let sql = "SELECT id, name FROM users".to_string();
 
-                let scan_operation = if is_partition_lookup {
-                    Op::PartitionLookup
-                } else if is_clustering_used {
-                    Op::Filter
-                } else {
-                    Op::TableScan
-                };
+        // Call the parse function
+        let result = parse(sql, keyspace);
 
-                let scan_id = graph.add_node(scan_operation, vec![]);
-                last_node = Some(scan_id);
+        // Check the result
+        assert!(result.is_ok());
+        let parsed_query = result.unwrap();
+        assert_eq!(parsed_query.table.name, "users");
+        assert_eq!(parsed_query.projection.len(), 2);
 
-                // Step 2: Filter Operation (if applicable)
-                if let Some(selection) = select.selection {
-                    let filter_id = graph.add_node(Op::Filter, vec![scan_id]);
-                    last_node = Some(filter_id);
-                }
-
-                // Step 3: Projection (SELECT columns)
-                let projection_columns: Vec<String> = select
-                    .projection
-                    .iter()
-                    .map(|item| match item {
-                        SelectItem::UnnamedExpr(Expr::Identifier(ident)) => ident.to_string(),
-                        _ => "UNKNOWN".to_string(),
-                    })
-                    .collect();
-
-                let projection_id = graph.add_node(
-                    Op::Projection {columns: projection_columns.clone()},
-                    last_node.map_or(vec![], |id| vec![id]),
-                );
-                last_node = Some(projection_id);
-            }
+        if let ParsedExpr::Column(column) = &parsed_query.projection[0] {
+            assert_eq!(column.resolved_name, "id");
+            assert_eq!(column.column_metadata.name, "id");
+        } else {
+            panic!("Expected ParsedExpr::Column");
         }
-    }
 
-    graph
+        if let ParsedExpr::Column(column) = &parsed_query.projection[1] {
+            assert_eq!(column.resolved_name, "name");
+            assert_eq!(column.column_metadata.name, "name");
+        } else {
+            panic!("Expected ParsedExpr::Column");
+        }
+
+        //assert_eq!(parsed_query.projection[0].resolved_name, "id");
+        //assert_eq!(parsed_query.projection[1].resolved_name, "name");
+    }
 }

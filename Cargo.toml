@@ -12,9 +12,9 @@ bytes = "1.9.0"
 tokio-macros = "2.4.0"
 futures = "0.3.31"
 sqlparser = { version = "0.53.0", features = ["visitor"] }
-redb = "2.4.0"
 num-traits = "0.2.19"
 bitreader = "0.3.11"
-uuid = "1.13.1"
-sled = "0.34.7"
+uuid = { version = "1.13.1", features = ["v4"] }
 bitflags = "2.8.0"
+fjall = "2.6.5"
+indexmap = "2.7.1"
