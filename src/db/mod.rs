@@ -3,6 +3,7 @@ mod dialect;
 mod visitor;
 mod execution;
 mod parse;
+pub mod schema;
 
 use crate::cql::request::query::Query;
 use crate::cql::response::error::Error as CqlError;
