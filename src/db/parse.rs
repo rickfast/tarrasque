@@ -1,31 +1,34 @@
 use crate::db::dialect::CassandraDialect;
 use crate::db::schema::{ColumnMetadata, Keyspace, TableMetadata};
-use crate::serde::reader::Value;
 use sqlparser::ast::{BinaryOperator, Expr, Select, SelectItem, SetExpr, Statement, TableFactor};
 use sqlparser::parser::Parser;
 use std::ops::Deref;
-use std::os::macos::raw::stat;
 use anyhow::anyhow;
+use crate::db::data::Value;
 
-struct ParsedQuery {
-    partition_key: Option<Vec<String>>,
-    clustering_key: Option<Vec<String>>,
-    projection: Vec<ParsedExpr>,
-    filters: Vec<ParsedExpr>,
-    table: TableMetadata,
+#[derive(Debug, Clone)]
+pub struct ParsedQuery {
+    pub partition_key: Vec<String>,
+    pub clustering_key: Vec<String>,
+    pub projection: Vec<ParsedExpr>,
+    pub filters: Vec<ParsedExpr>,
+    pub table: TableMetadata,
 }
 
-enum ParsedExpr {
+#[derive(Debug, Clone)]
+pub enum ParsedExpr {
     Column(ProjectedColumn),
     Function(FunctionHandle, Vec<ParsedExpr>),
     Literal(Value),
 }
 
-type FunctionHandle = String;
+pub type FunctionHandle = String;
 
-struct ProjectedColumn {
-    resolved_name: String,
-    column_metadata: ColumnMetadata,
+#[derive(Debug, Clone)]
+pub struct ProjectedColumn {
+    pub target_column: String,
+    pub resolved_name: String,
+    pub column_metadata: ColumnMetadata,
 }
 
 // Parse SQL query
@@ -39,24 +42,22 @@ fn parse<'a>(sql: String, keyspace: Keyspace) -> anyhow::Result<ParsedQuery> {
 
     let statement = &statements[0];
 
-    let x = if let Statement::Query(query) = statement {
+    if let Statement::Query(query) = statement {
         if let SetExpr::Select(select) = &query.body.deref() {
             let table = derive_table_metadata(&keyspace, &select)?;
             let projection = derive_projection(&select, &table)?;
 
             Ok(ParsedQuery {
                 filters: vec![],
-                partition_key: None,
-                clustering_key: None,
+                partition_key: vec![],
+                clustering_key: vec![],
                 projection,
                 table: table.clone(),
             })
         } else { Err(anyhow!("")) }
     } else {
         Err(anyhow::anyhow!("Only SELECT statements are supported"))
-    };
-
-    x
+    }
 }
 
 fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Result<Vec<ParsedExpr>> {
@@ -74,7 +75,8 @@ fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Res
                     match column_metadata {
                         Some(metadata) => {
                             Ok(ParsedExpr::Column(ProjectedColumn {
-                                resolved_name: column_name,
+                                target_column: column_name.clone(),
+                                resolved_name: column_name.clone(),
                                 column_metadata: metadata.clone(),
                             }))
                         },
@@ -92,6 +94,7 @@ fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Res
                     match column_metadata {
                         Some(metadata) => {
                             Ok(ParsedExpr::Column(ProjectedColumn {
+                                target_column: column_name.clone(),
                                 resolved_name: alias.value.clone(),
                                 column_metadata: metadata.clone(),
                             }))
@@ -154,7 +157,7 @@ fn analyze_where_clause(
 mod tests {
     use super::*;
     use crate::db::data::ColumnType;
-    use crate::db::schema::{ColumnMetadata, Key, Keyspace, Kind, TableMetadata};
+    use crate::db::schema::{ColumnMetadata, Keyspace, Kind, TableMetadata};
     use indexmap::IndexMap;
     use std::collections::HashMap;
 
@@ -162,6 +165,7 @@ mod tests {
     fn test_parse() {
         // Create a mock keyspace with a table and columns
         let mut columns = IndexMap::new();
+
         columns.insert(
             "id".to_string(),
             ColumnMetadata {
@@ -183,11 +187,11 @@ mod tests {
             name: "users".to_string(),
             columns,
             keyspace: "test_keyspace".to_string(),
-            partition_key: Key::Single("id".to_string()),
-            cluster_key: None,
+            partition_key: vec!["id".to_string()],
+            cluster_key: vec![],
         };
-
         let mut tables = HashMap::new();
+
         tables.insert("users".to_string(), table);
 
         let keyspace = Keyspace {

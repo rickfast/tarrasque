@@ -9,27 +9,20 @@ pub struct Keyspace {
 }
 
 #[derive(Debug, Clone)]
-pub enum Key {
-    Single(String),
-    Composite(Vec<String>)
-}
-
-impl Key {
-    fn to_bytes(&self) -> Vec<u8> {
-        match self {
-            Key::Single(key) => key.as_bytes().to_vec(),
-            Key::Composite(keys) => keys.iter().flat_map(|key| key.as_bytes().to_vec()).collect()
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct TableMetadata {
     pub keyspace: String,
     pub name: String,
-    pub partition_key: Key,
-    pub cluster_key: Option<Key>,
+    pub partition_key: Vec<String>,
+    pub cluster_key: Vec<String>,
     pub columns: IndexMap<String, ColumnMetadata>
+}
+
+impl TableMetadata {
+    pub fn ordered_column_names(&self) -> Vec<String> {
+        self.columns.keys()
+            .map(|name| name.to_string())
+            .collect::<Vec<String>>()
+    }
 }
 
 #[derive(Debug, Clone)]

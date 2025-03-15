@@ -72,7 +72,7 @@ impl ColumnType {
 }
 
 #[derive(Debug, Clone)]
-enum Value {
+pub enum Value {
     Ascii(Vec<u8>),
     Bigint(i64),
     Blob(Vec<u8>),
@@ -148,7 +148,7 @@ impl PartialEq for Value {
 
 #[derive(Debug, Clone)]
 pub struct Row {
-    columns: Vec<Value>,
+    pub columns: Vec<Value>,
 }
 
 impl Row {
@@ -232,15 +232,17 @@ impl From<Slice> for Row {
         let mut columns = Vec::new();
         let mut remaining = value.as_ref();
 
+        println!("Reading Row");
+
         while !remaining.is_empty() {
             let (type_bytes, rest) = remaining.split_at(2);
             let type_id = u16::from_be_bytes(type_bytes.try_into().unwrap());
-            println!("===> Type ID: {}", type_id);
+            println!("- Reading Column Type ID: {}", type_id);
             let (column_bytes, rest) = match type_id {
                 ASCII_TYPE_ID | BLOB_TYPE_ID | DECIMAL_TYPE_ID | VARCHAR_TYPE_ID | VARINT_TYPE_ID | INET_TYPE_ID => {
                     let (size_bytes, rest) = rest.split_at(4);
                     let size = u32::from_be_bytes(size_bytes.try_into().unwrap()) as usize;
-                    println!("===> Size: {}", size.to_string());
+                    println!("  Size: {}", size.to_string());
                     rest.split_at(size)
                 },
                 BIGINT_TYPE_ID => rest.split_at(8),
@@ -376,8 +378,8 @@ mod tests {
             Value::Boolean(true),
             Value::Counter(987654321),
             Value::Decimal(vec![1, 2, 3, 4]),
-            Value::Double(3.14159),
-            Value::Float(2.71828),
+            Value::Double(std::f64::consts::PI),
+            Value::Float(std::f32::consts::E),
             Value::Int(42),
             Value::Timestamp(1627846261),
             Value::Uuid(Uuid::new_v4()),
