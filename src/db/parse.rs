@@ -1,10 +1,10 @@
+use crate::db::data::Value;
 use crate::db::dialect::CassandraDialect;
 use crate::db::schema::{ColumnMetadata, Keyspace, TableMetadata};
+use anyhow::anyhow;
 use sqlparser::ast::{BinaryOperator, Expr, Select, SelectItem, SetExpr, Statement, TableFactor};
 use sqlparser::parser::Parser;
 use std::ops::Deref;
-use anyhow::anyhow;
-use crate::db::data::Value;
 
 #[derive(Debug, Clone)]
 pub struct ParsedQuery {
@@ -54,13 +54,18 @@ fn parse<'a>(sql: String, keyspace: Keyspace) -> anyhow::Result<ParsedQuery> {
                 projection,
                 table: table.clone(),
             })
-        } else { Err(anyhow!("")) }
+        } else {
+            Err(anyhow!(""))
+        }
     } else {
         Err(anyhow::anyhow!("Only SELECT statements are supported"))
     }
 }
 
-fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Result<Vec<ParsedExpr>> {
+fn derive_projection(
+    select: &Box<Select>,
+    table: &TableMetadata,
+) -> anyhow::Result<Vec<ParsedExpr>> {
     select
         .projection
         .iter()
@@ -68,19 +73,15 @@ fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Res
             SelectItem::UnnamedExpr(expr) => match expr {
                 Expr::Identifier(ident) => {
                     let column_name = ident.value.clone();
-                    let column_metadata = table
-                        .columns
-                        .get(&column_name);
+                    let column_metadata = table.columns.get(&column_name);
 
                     match column_metadata {
-                        Some(metadata) => {
-                            Ok(ParsedExpr::Column(ProjectedColumn {
-                                target_column: column_name.clone(),
-                                resolved_name: column_name.clone(),
-                                column_metadata: metadata.clone(),
-                            }))
-                        },
-                        None => Err(anyhow!("Error"))
+                        Some(metadata) => Ok(ParsedExpr::Column(ProjectedColumn {
+                            target_column: column_name.clone(),
+                            resolved_name: column_name.clone(),
+                            column_metadata: metadata.clone(),
+                        })),
+                        None => Err(anyhow!("Error")),
                     }
                 }
                 _ => unimplemented!(),
@@ -88,18 +89,14 @@ fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Res
             SelectItem::ExprWithAlias { expr, alias } => match expr {
                 Expr::Identifier(ident) => {
                     let column_name = ident.value.clone();
-                    let column_metadata = table
-                        .columns
-                        .get(&column_name);
+                    let column_metadata = table.columns.get(&column_name);
                     match column_metadata {
-                        Some(metadata) => {
-                            Ok(ParsedExpr::Column(ProjectedColumn {
-                                target_column: column_name.clone(),
-                                resolved_name: alias.value.clone(),
-                                column_metadata: metadata.clone(),
-                            }))
-                        },
-                        None => Err(anyhow!("Error"))
+                        Some(metadata) => Ok(ParsedExpr::Column(ProjectedColumn {
+                            target_column: column_name.clone(),
+                            resolved_name: alias.value.clone(),
+                            column_metadata: metadata.clone(),
+                        })),
+                        None => Err(anyhow!("Error")),
                     }
                 }
                 _ => unimplemented!(),
@@ -114,9 +111,7 @@ fn derive_table_metadata<'a>(
     select: &Box<Select>,
 ) -> anyhow::Result<&'a TableMetadata> {
     let table = match &select.from.first().unwrap().relation {
-        TableFactor::Table {
-            name, ..
-        } => {
+        TableFactor::Table { name, .. } => {
             let table_name = name.to_string();
             keyspace
                 .tables

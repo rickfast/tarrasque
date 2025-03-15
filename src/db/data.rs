@@ -88,8 +88,8 @@ pub enum Value {
     Varint(Vec<u8>), // Typically represented as a byte array
     Timeuuid(Uuid),
     Inet(Vec<u8>), // Typically represented as a byte array
-    Date(i32), // Typically represented as the number of days since the epoch
-    Time(i64), // Typically represented as the number of nanoseconds since midnight
+    Date(i32),     // Typically represented as the number of days since the epoch
+    Time(i64),     // Typically represented as the number of nanoseconds since midnight
     Smallint(i16),
     Tinyint(i8),
 }
@@ -153,7 +153,9 @@ pub struct Row {
 
 impl Row {
     fn new() -> Self {
-        Row { columns: Vec::new() }
+        Row {
+            columns: Vec::new(),
+        }
     }
 }
 
@@ -165,18 +167,18 @@ impl Into<Vec<u8>> for Value {
             Value::Ascii(v) => {
                 let size = (v.len() as u32).to_be_bytes().to_vec();
                 [size, v].concat()
-            },
+            }
             Value::Bigint(i) => i.to_be_bytes().to_vec(),
             Value::Blob(v) => {
                 let size = (v.len() as u32).to_be_bytes().to_vec();
                 [size, v].concat()
-            },
+            }
             Value::Boolean(b) => vec![b as u8],
             Value::Counter(i) => i.to_be_bytes().to_vec(),
             Value::Decimal(v) => {
                 let size = (v.len() as u32).to_be_bytes().to_vec();
                 [size, v].concat()
-            },
+            }
             Value::Double(f) => f.to_be_bytes().to_vec(),
             Value::Float(f) => f.to_be_bytes().to_vec(),
             Value::Int(i) => i.to_be_bytes().to_vec(),
@@ -186,16 +188,16 @@ impl Into<Vec<u8>> for Value {
                 let bytes = s.into_bytes();
                 let size = (bytes.len() as u32).to_be_bytes().to_vec();
                 [size, bytes].concat()
-            },
+            }
             Value::Varint(v) => {
                 let size = (v.len() as u32).to_be_bytes().to_vec();
                 [size, v].concat()
-            },
+            }
             Value::Timeuuid(u) => u.as_bytes().to_vec(),
             Value::Inet(v) => {
                 let size = (v.len() as u32).to_be_bytes().to_vec();
                 [size, v].concat()
-            },
+            }
             Value::Date(d) => d.to_be_bytes().to_vec(),
             Value::Time(t) => t.to_be_bytes().to_vec(),
             Value::Smallint(i) => i.to_be_bytes().to_vec(),
@@ -239,12 +241,13 @@ impl From<Slice> for Row {
             let type_id = u16::from_be_bytes(type_bytes.try_into().unwrap());
             println!("- Reading Column Type ID: {}", type_id);
             let (column_bytes, rest) = match type_id {
-                ASCII_TYPE_ID | BLOB_TYPE_ID | DECIMAL_TYPE_ID | VARCHAR_TYPE_ID | VARINT_TYPE_ID | INET_TYPE_ID => {
+                ASCII_TYPE_ID | BLOB_TYPE_ID | DECIMAL_TYPE_ID | VARCHAR_TYPE_ID
+                | VARINT_TYPE_ID | INET_TYPE_ID => {
                     let (size_bytes, rest) = rest.split_at(4);
                     let size = u32::from_be_bytes(size_bytes.try_into().unwrap()) as usize;
                     println!("  Size: {}", size.to_string());
                     rest.split_at(size)
-                },
+                }
                 BIGINT_TYPE_ID => rest.split_at(8),
                 BOOLEAN_TYPE_ID => rest.split_at(1),
                 COUNTER_TYPE_ID => rest.split_at(8),
@@ -263,24 +266,38 @@ impl From<Slice> for Row {
 
             let column = match type_id {
                 ASCII_TYPE_ID => Value::Ascii(column_bytes.to_vec()),
-                BIGINT_TYPE_ID => Value::Bigint(i64::from_be_bytes(column_bytes.try_into().unwrap())),
+                BIGINT_TYPE_ID => {
+                    Value::Bigint(i64::from_be_bytes(column_bytes.try_into().unwrap()))
+                }
                 BLOB_TYPE_ID => Value::Blob(column_bytes.to_vec()),
                 BOOLEAN_TYPE_ID => Value::Boolean(column_bytes[0] != 0),
-                COUNTER_TYPE_ID => Value::Counter(i64::from_be_bytes(column_bytes.try_into().unwrap())),
+                COUNTER_TYPE_ID => {
+                    Value::Counter(i64::from_be_bytes(column_bytes.try_into().unwrap()))
+                }
                 DECIMAL_TYPE_ID => Value::Decimal(column_bytes.to_vec()),
-                DOUBLE_TYPE_ID => Value::Double(f64::from_be_bytes(column_bytes.try_into().unwrap())),
+                DOUBLE_TYPE_ID => {
+                    Value::Double(f64::from_be_bytes(column_bytes.try_into().unwrap()))
+                }
                 FLOAT_TYPE_ID => Value::Float(f32::from_be_bytes(column_bytes.try_into().unwrap())),
                 INT_TYPE_ID => Value::Int(i32::from_be_bytes(column_bytes.try_into().unwrap())),
-                TIMESTAMP_TYPE_ID => Value::Timestamp(i64::from_be_bytes(column_bytes.try_into().unwrap())),
+                TIMESTAMP_TYPE_ID => {
+                    Value::Timestamp(i64::from_be_bytes(column_bytes.try_into().unwrap()))
+                }
                 UUID_TYPE_ID => Value::Uuid(Uuid::from_slice(column_bytes).unwrap()),
-                VARCHAR_TYPE_ID => Value::Varchar(String::from_utf8(column_bytes.to_vec()).unwrap()),
+                VARCHAR_TYPE_ID => {
+                    Value::Varchar(String::from_utf8(column_bytes.to_vec()).unwrap())
+                }
                 VARINT_TYPE_ID => Value::Varint(column_bytes.to_vec()),
                 TIMEUUID_TYPE_ID => Value::Timeuuid(Uuid::from_slice(column_bytes).unwrap()),
                 INET_TYPE_ID => Value::Inet(column_bytes.to_vec()),
                 DATE_TYPE_ID => Value::Date(i32::from_be_bytes(column_bytes.try_into().unwrap())),
                 TIME_TYPE_ID => Value::Time(i64::from_be_bytes(column_bytes.try_into().unwrap())),
-                SMALLINT_TYPE_ID => Value::Smallint(i16::from_be_bytes(column_bytes.try_into().unwrap())),
-                TINYINT_TYPE_ID => Value::Tinyint(i8::from_be_bytes(column_bytes.try_into().unwrap())),
+                SMALLINT_TYPE_ID => {
+                    Value::Smallint(i16::from_be_bytes(column_bytes.try_into().unwrap()))
+                }
+                TINYINT_TYPE_ID => {
+                    Value::Tinyint(i8::from_be_bytes(column_bytes.try_into().unwrap()))
+                }
                 _ => unimplemented!(),
             };
 
@@ -300,21 +317,48 @@ mod tests {
 
     #[test]
     fn test_value_column_type() {
-        assert_eq!(Value::Ascii(vec![65, 66, 67]).column_type(), ColumnType::Ascii);
+        assert_eq!(
+            Value::Ascii(vec![65, 66, 67]).column_type(),
+            ColumnType::Ascii
+        );
         assert_eq!(Value::Bigint(123456789).column_type(), ColumnType::Bigint);
         assert_eq!(Value::Blob(vec![1, 2, 3]).column_type(), ColumnType::Blob);
         assert_eq!(Value::Boolean(true).column_type(), ColumnType::Boolean);
         assert_eq!(Value::Counter(987654321).column_type(), ColumnType::Counter);
-        assert_eq!(Value::Decimal(vec![1, 2, 3, 4]).column_type(), ColumnType::Decimal);
-        assert_eq!(Value::Double(std::f64::consts::PI).column_type(), ColumnType::Double);
-        assert_eq!(Value::Float(std::f32::consts::E).column_type(), ColumnType::Float);
+        assert_eq!(
+            Value::Decimal(vec![1, 2, 3, 4]).column_type(),
+            ColumnType::Decimal
+        );
+        assert_eq!(
+            Value::Double(std::f64::consts::PI).column_type(),
+            ColumnType::Double
+        );
+        assert_eq!(
+            Value::Float(std::f32::consts::E).column_type(),
+            ColumnType::Float
+        );
         assert_eq!(Value::Int(42).column_type(), ColumnType::Int);
-        assert_eq!(Value::Timestamp(1627846261).column_type(), ColumnType::Timestamp);
+        assert_eq!(
+            Value::Timestamp(1627846261).column_type(),
+            ColumnType::Timestamp
+        );
         assert_eq!(Value::Uuid(Uuid::new_v4()).column_type(), ColumnType::Uuid);
-        assert_eq!(Value::Varchar("test".to_string()).column_type(), ColumnType::Varchar);
-        assert_eq!(Value::Varint(vec![1, 2, 3, 4]).column_type(), ColumnType::Varint);
-        assert_eq!(Value::Timeuuid(Uuid::new_v4()).column_type(), ColumnType::Timeuuid);
-        assert_eq!(Value::Inet(vec![192, 168, 1, 1]).column_type(), ColumnType::Inet);
+        assert_eq!(
+            Value::Varchar("test".to_string()).column_type(),
+            ColumnType::Varchar
+        );
+        assert_eq!(
+            Value::Varint(vec![1, 2, 3, 4]).column_type(),
+            ColumnType::Varint
+        );
+        assert_eq!(
+            Value::Timeuuid(Uuid::new_v4()).column_type(),
+            ColumnType::Timeuuid
+        );
+        assert_eq!(
+            Value::Inet(vec![192, 168, 1, 1]).column_type(),
+            ColumnType::Inet
+        );
         assert_eq!(Value::Date(18628).column_type(), ColumnType::Date);
         assert_eq!(Value::Time(1234567890).column_type(), ColumnType::Time);
         assert_eq!(Value::Smallint(123).column_type(), ColumnType::Smallint);
@@ -324,16 +368,10 @@ mod tests {
     #[test]
     fn test_row_equality() {
         let row1 = Row {
-            columns: vec![
-                Value::Ascii(b"Hello".to_vec()),
-                Value::Int(42),
-            ],
+            columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)],
         };
         let row2 = Row {
-            columns: vec![
-                Value::Ascii(b"Hello".to_vec()),
-                Value::Int(42),
-            ],
+            columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)],
         };
         assert_eq!(row1, row2);
     }
@@ -355,16 +393,10 @@ mod tests {
     #[test]
     fn test_row_inequality() {
         let row1 = Row {
-            columns: vec![
-                Value::Ascii(b"Hello".to_vec()),
-                Value::Int(42),
-            ],
+            columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)],
         };
         let row2 = Row {
-            columns: vec![
-                Value::Ascii(b"Hello".to_vec()),
-                Value::Int(43),
-            ],
+            columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(43)],
         };
         assert_ne!(row1, row2);
     }
@@ -393,7 +425,9 @@ mod tests {
             Value::Tinyint(12),
         ];
 
-        let row = Row { columns: values.clone() };
+        let row = Row {
+            columns: values.clone(),
+        };
         let slice: Slice = row.clone().into();
 
         println!("{:?}", slice);

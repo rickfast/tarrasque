@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use indexmap::IndexMap;
 use crate::db::data::ColumnType;
+use indexmap::IndexMap;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Keyspace {
@@ -14,12 +14,13 @@ pub struct TableMetadata {
     pub name: String,
     pub partition_key: Vec<String>,
     pub cluster_key: Vec<String>,
-    pub columns: IndexMap<String, ColumnMetadata>
+    pub columns: IndexMap<String, ColumnMetadata>,
 }
 
 impl TableMetadata {
     pub fn ordered_column_names(&self) -> Vec<String> {
-        self.columns.keys()
+        self.columns
+            .keys()
             .map(|name| name.to_string())
             .collect::<Vec<String>>()
     }
@@ -29,7 +30,7 @@ impl TableMetadata {
 pub struct ColumnMetadata {
     pub name: String,
     pub column_type: ColumnType,
-    pub kind: Kind
+    pub kind: Kind,
 }
 
 #[derive(Debug, Clone)]
@@ -37,5 +38,5 @@ pub enum Kind {
     PartitionKey,
     Clustering,
     Regular,
-    Static
+    Static,
 }

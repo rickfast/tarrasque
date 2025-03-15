@@ -2,7 +2,6 @@ use crate::db::data::{Row, Value};
 use crate::db::parse::{ParsedExpr, ParsedQuery};
 use fjall::{Keyspace, KvPair, PartitionCreateOptions};
 use std::collections::HashMap;
-use std::ops::Not;
 fn execute<'a>(
     keyspace: &Keyspace,
     parsed_query: ParsedQuery,
@@ -23,7 +22,7 @@ fn execute<'a>(
         //     Box::new(partition.prefix(prefix_bytes))
         // } else {
             Box::new(partition.iter());
-        // };
+    // };
     let ordered_columns = table.ordered_column_names();
     let results = iterator
         .map(|raw_row| Row::from(raw_row.unwrap().1))
