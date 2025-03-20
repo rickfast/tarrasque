@@ -5,12 +5,16 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::cql::codec::CqlFrameCodec;
 use crate::cql::operation::Operation;
-use crate::db::Database;
+use crate::db::{Database, Results};
+use crate::cql::response::error::Error as CqlError;
+use crate::cql::response::result::{Flags, Metadata, Result as CqlResult};
 use futures::sink::SinkExt;
 use std::env;
 use std::error::Error;
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
+use crate::db::data::{Row, Value};
+use crate::db::error::DbError;
 
 const _256MB: usize = 26435456;
 
@@ -32,7 +36,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn exchange(server: &mut Framed<TcpStream, CqlFrameCodec>) -> Result<(), Box<dyn Error>> {
-    let database = Database::new();
+    let database = Database::new(HashMap::new());
 
     while let Some(result) = server.next().await {
         match result {
@@ -58,10 +62,23 @@ async fn exchange(server: &mut Framed<TcpStream, CqlFrameCodec>) -> Result<(), B
                 }
                 Operation::Query(query) => match database.clone().query(query) {
                     Ok(result) => {
+                        let iterator = result.result;
+                        let items = iterator.map(|row| {
+                            Row {
+                                columns: row.into_iter().collect::<Vec<Value>>(),
+                            }
+                        }).collect::<Vec<Row>>();
+
+                        let result = CqlResult::Rows {
+                            rows: items.clone(),
+                            metadata: Metadata::new(Flags::empty(), 2),
+                            row_count: items.len() as i32,
+                        };
+
                         server.send(Operation::Result(result)).await?;
                     }
                     Err(error) => {
-                        server.send(Operation::Error(error)).await?;
+                        server.send(Operation::Error(error.into())).await?;
                     }
                 },
                 Operation::Prepare => {}
@@ -79,4 +96,10 @@ async fn exchange(server: &mut Framed<TcpStream, CqlFrameCodec>) -> Result<(), B
     }
 
     Ok(())
+}
+
+impl Into<CqlError> for DbError {
+    fn into(self) -> CqlError {
+        CqlError::new(self.code.to_code(), self.message)
+    }
 }

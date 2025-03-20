@@ -7,7 +7,11 @@ use bytes::BytesMut;
 pub(crate) enum Result {
     Void,
     SetKeyspace(String),
-    Rows(Rows),
+    Rows {
+        metadata: Metadata,
+        row_count: i32,
+        rows: Vec<Row>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -27,7 +31,7 @@ struct ColumnSpec {
 bitflags! {
     /// Represents a set of flags.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    struct Flags: i32 {
+    pub struct Flags: i32 {
         const GLOBAL_TABLES_SPEC = 0x01;
         const HAS_PAGING_STATE = 0x02;
         const NO_METADATA = 0x03;
@@ -35,7 +39,7 @@ bitflags! {
 }
 
 #[derive(Debug, Clone)]
-struct Metadata {
+pub struct Metadata {
     flags: Flags,
     paging_state: Option<String>,
     column_count: i32,
@@ -43,19 +47,24 @@ struct Metadata {
     column_specs: Vec<ColumnSpec>,
 }
 
-#[derive(Debug, Clone)]
-struct Rows {
-    metadata: Metadata,
-    row_count: i32,
-    rows: Vec<Row>,
+impl Metadata {
+    pub fn new(flags: Flags, column_count: i32) -> Metadata {
+        Metadata {
+            flags,
+            paging_state: None,
+            column_count,
+            global_table_spec: None,
+            column_specs: vec![],
+        }
+    }
 }
 
 pub(crate) fn encode(src: Result, dst: &mut BytesMut) -> anyhow::Result<()> {
     match src {
         Result::Void => int!(dst, 01),
         Result::SetKeyspace(keyspace) => string!(dst, keyspace),
-        Result::Rows(rows) => {
-            let metadata = rows.metadata;
+        Result::Rows { metadata, row_count: _, rows: _ } => {
+            let metadata = metadata;
             let flags = metadata.flags;
 
             int!(dst, flags.bits());
