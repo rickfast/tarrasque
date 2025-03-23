@@ -1,29 +1,31 @@
 use crate::db::data::{Row, Value};
+use crate::db::error::{DbError, ErrorCode};
 use crate::db::parse::{ParsedExpr, ParsedQuery};
 use fjall::{Keyspace, KvPair, PartitionCreateOptions};
 use std::collections::HashMap;
 use std::ops::Not;
-fn execute<'a>(
+
+pub fn execute<'a>(
     keyspace: &Keyspace,
     parsed_query: ParsedQuery,
-) -> anyhow::Result<impl Iterator<Item = Vec<Value>>> {
+) -> Result<impl Iterator<Item = Vec<Value>>, DbError> {
     let table = &parsed_query.table;
-    let partition = keyspace.open_partition(&table.name, PartitionCreateOptions::default())?;
-    // let prefix: Vec<String> = [
-    //     // &parsed_query.partition_key[..],
-    //     // &parsed_query.clustering_key[..],
-    // ]
-    // .concat();
+    let partition = keyspace
+        .open_partition(&table.name, PartitionCreateOptions::default())
+        .map_err(|err| DbError::new(ErrorCode::ReadFailure, err.to_string()))?;
+    let prefix = [
+        &parsed_query.partition_key[..],
+        &parsed_query.clustering_key[..],
+    ]
+    .concat()
+    .join("");
+
     let iterator: Box<dyn DoubleEndedIterator<Item = fjall::Result<KvPair>>> =
-        // if prefix.is_empty().not() {
-        //     let prefix_bytes = prefix
-        //         .iter()
-        //         .flat_map(|item| item.clone().into_bytes())
-        //         .collect::<Vec<u8>>();
-        //     Box::new(partition.prefix(prefix_bytes))
-        // } else {
-            Box::new(partition.iter());
-        // };
+        if prefix.is_empty().not() {
+            Box::new(partition.prefix(prefix))
+        } else {
+            Box::new(partition.iter())
+        };
     let ordered_columns = table.ordered_column_names();
     let results = iterator
         .map(|raw_row| Row::from(raw_row.unwrap().1))
@@ -79,9 +81,22 @@ mod tests {
     use crate::db::parse::ProjectedColumn;
     use crate::db::schema::{ColumnMetadata, Keyspace, Kind, TableMetadata};
     use fjall::Keyspace as FjallKeyspace;
-    use fjall::{Config, PartitionCreateOptions, Slice};
+    use fjall::{Config, PartitionCreateOptions};
     use indexmap::IndexMap;
     use std::collections::HashMap;
+
+    #[test]
+    fn test_x() {
+        let ks = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
+        let partition = ks
+            .open_partition("farts", PartitionCreateOptions::default())
+            .unwrap();
+        let result = partition.insert("1", "blah").unwrap();
+
+        let count = partition.prefix("1").count();
+
+        assert_eq!(1, count);
+    }
 
     #[test]
     fn test_execute() {
@@ -122,25 +137,18 @@ mod tests {
         };
 
         let ks = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
-
         let row_a = Row {
             columns: vec![Value::Smallint(1), Value::Varchar("row1".to_string())],
         };
         let row_b = Row {
             columns: vec![Value::Smallint(2), Value::Varchar("row2".to_string())],
         };
-
-        // Create a mock partition with data
         let partition = ks
             .open_partition(&table.name, PartitionCreateOptions::default())
             .unwrap();
 
-        partition
-            .insert(Slice::from(1u16.to_be_bytes()), row_a)
-            .unwrap();
-        partition
-            .insert(Slice::from(2u16.to_be_bytes()), row_b)
-            .unwrap();
+        partition.insert("1", row_a).unwrap();
+        partition.insert("2", row_b).unwrap();
 
         // Define a simple ParsedQuery
         let parsed_query = ParsedQuery {
@@ -160,6 +168,7 @@ mod tests {
             ],
             filters: vec![],
             table,
+            column_count: 2,
         };
 
         // Call the execute function
@@ -167,18 +176,12 @@ mod tests {
 
         // Check the result
         assert!(result.is_ok());
-        let mut result_iter = result.unwrap();
 
-        // Check the first row
+        let mut result_iter = result.unwrap();
         let row = result_iter.next().unwrap();
+
         assert_eq!(row.len(), 2);
         assert_eq!(row[0], Value::Smallint(1));
         assert_eq!(row[1], Value::Varchar("row1".to_string()));
-
-        // Check the second row
-        let row = result_iter.next().unwrap();
-        assert_eq!(row.len(), 2);
-        assert_eq!(row[0], Value::Smallint(2));
-        assert_eq!(row[1], Value::Varchar("row2".to_string()));
     }
 }

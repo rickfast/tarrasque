@@ -1,32 +1,47 @@
 pub mod data;
 mod dialect;
-mod visitor;
+pub mod error;
 mod execution;
 mod parse;
 pub mod schema;
+mod visitor;
 
 use crate::cql::request::query::Query;
-use crate::cql::response::error::Error as CqlError;
-use crate::cql::response::result::Result as CqlResult;
+use crate::db::data::Value;
 use crate::db::dialect::CassandraDialect;
-use sqlparser::parser::Parser;
+use crate::db::error::DbError;
+use crate::db::execution::execute;
+use crate::db::parse::parse;
+use crate::db::schema::Keyspace;
+use fjall::{Config, Keyspace as FjallKeyspace};
+use std::collections::HashMap;
 
 static DIALECT: CassandraDialect = CassandraDialect {};
 
-#[derive(Copy, Clone)]
-pub struct Database {}
+#[derive(Clone)]
+pub struct Database {
+    keyspaces: HashMap<String, Keyspace>,
+    fjall: FjallKeyspace,
+}
+
+pub struct Results {
+    pub result: Box<dyn Iterator<Item = Vec<Value>>>,
+}
 
 impl Database {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(keyspaces: HashMap<String, Keyspace>) -> Self {
+        Self {
+            keyspaces,
+            fjall: FjallKeyspace::open(Config::new("/tmp/x")).unwrap(),
+        }
     }
 
-    pub fn query(self, query: Query) -> Result<CqlResult, CqlError> {
-        match Parser::parse_sql(&DIALECT, query.query.as_str()) {
-            Ok(statements) => Err(CqlError::new(1, String::from("Unknown Statement"))),
-            Err(error) => {
-                unimplemented!()
-            }
-        }
+    pub fn query(self, query: Query) -> Result<Results, DbError> {
+        let parsed_query = parse(query.query, self.keyspaces.get("default").unwrap().clone())?;
+        let results = execute(&self.fjall, parsed_query)?;
+
+        Ok(Results {
+            result: Box::new(results),
+        })
     }
 }

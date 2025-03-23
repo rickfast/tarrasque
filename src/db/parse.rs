@@ -1,10 +1,11 @@
+use crate::db::data::Value;
 use crate::db::dialect::CassandraDialect;
+use crate::db::error::{DbError, ErrorCode};
 use crate::db::schema::{ColumnMetadata, Keyspace, TableMetadata};
+use anyhow::anyhow;
 use sqlparser::ast::{BinaryOperator, Expr, Select, SelectItem, SetExpr, Statement, TableFactor};
 use sqlparser::parser::Parser;
 use std::ops::Deref;
-use anyhow::anyhow;
-use crate::db::data::Value;
 
 #[derive(Debug, Clone)]
 pub struct ParsedQuery {
@@ -13,6 +14,7 @@ pub struct ParsedQuery {
     pub projection: Vec<ParsedExpr>,
     pub filters: Vec<ParsedExpr>,
     pub table: TableMetadata,
+    pub column_count: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -32,35 +34,48 @@ pub struct ProjectedColumn {
 }
 
 // Parse SQL query
-fn parse<'a>(sql: String, keyspace: Keyspace) -> anyhow::Result<ParsedQuery> {
+pub fn parse<'a>(sql: String, keyspace: Keyspace) -> Result<ParsedQuery, DbError> {
     let dialect = CassandraDialect {};
-    let statements = Parser::parse_sql(&dialect, &sql)?;
+    let statements = Parser::parse_sql(&dialect, &sql)
+        .map_err(|error| DbError::new(ErrorCode::Invalid, error.to_string()))?;
 
     if statements.len() != 1 {
-        return Err(anyhow::anyhow!("Only one statement is supported"));
+        return Err(DbError::new(
+            ErrorCode::Invalid,
+            "Only one statement is supported".to_string(),
+        ));
+        // return Err(anyhow::anyhow!("Only one statement is supported"));
     }
 
     let statement = &statements[0];
 
     if let Statement::Query(query) = statement {
         if let SetExpr::Select(select) = &query.body.deref() {
-            let table = derive_table_metadata(&keyspace, &select)?;
-            let projection = derive_projection(&select, &table)?;
+            let table = derive_table_metadata(&keyspace, &select)
+                .map_err(|error| DbError::new(ErrorCode::Invalid, "".to_string()))?;
+            let projection: Vec<ParsedExpr> = derive_projection(&select, &table)
+                .map_err(|error| DbError::new(ErrorCode::Invalid, "".to_string()))?;
 
             Ok(ParsedQuery {
                 filters: vec![],
                 partition_key: vec![],
                 clustering_key: vec![],
-                projection,
+                projection: projection.clone(),
                 table: table.clone(),
+                column_count: projection.len() as i32,
             })
-        } else { Err(anyhow!("")) }
+        } else {
+            unimplemented!()
+        }
     } else {
-        Err(anyhow::anyhow!("Only SELECT statements are supported"))
+        unimplemented!()
     }
 }
 
-fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Result<Vec<ParsedExpr>> {
+fn derive_projection(
+    select: &Box<Select>,
+    table: &TableMetadata,
+) -> anyhow::Result<Vec<ParsedExpr>> {
     select
         .projection
         .iter()
@@ -68,19 +83,15 @@ fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Res
             SelectItem::UnnamedExpr(expr) => match expr {
                 Expr::Identifier(ident) => {
                     let column_name = ident.value.clone();
-                    let column_metadata = table
-                        .columns
-                        .get(&column_name);
+                    let column_metadata = table.columns.get(&column_name);
 
                     match column_metadata {
-                        Some(metadata) => {
-                            Ok(ParsedExpr::Column(ProjectedColumn {
-                                target_column: column_name.clone(),
-                                resolved_name: column_name.clone(),
-                                column_metadata: metadata.clone(),
-                            }))
-                        },
-                        None => Err(anyhow!("Error"))
+                        Some(metadata) => Ok(ParsedExpr::Column(ProjectedColumn {
+                            target_column: column_name.clone(),
+                            resolved_name: column_name.clone(),
+                            column_metadata: metadata.clone(),
+                        })),
+                        None => Err(anyhow!("Error")),
                     }
                 }
                 _ => unimplemented!(),
@@ -88,18 +99,14 @@ fn derive_projection(select: &Box<Select>, table: &TableMetadata) -> anyhow::Res
             SelectItem::ExprWithAlias { expr, alias } => match expr {
                 Expr::Identifier(ident) => {
                     let column_name = ident.value.clone();
-                    let column_metadata = table
-                        .columns
-                        .get(&column_name);
+                    let column_metadata = table.columns.get(&column_name);
                     match column_metadata {
-                        Some(metadata) => {
-                            Ok(ParsedExpr::Column(ProjectedColumn {
-                                target_column: column_name.clone(),
-                                resolved_name: alias.value.clone(),
-                                column_metadata: metadata.clone(),
-                            }))
-                        },
-                        None => Err(anyhow!("Error"))
+                        Some(metadata) => Ok(ParsedExpr::Column(ProjectedColumn {
+                            target_column: column_name.clone(),
+                            resolved_name: alias.value.clone(),
+                            column_metadata: metadata.clone(),
+                        })),
+                        None => Err(anyhow!("Error")),
                     }
                 }
                 _ => unimplemented!(),
@@ -114,9 +121,7 @@ fn derive_table_metadata<'a>(
     select: &Box<Select>,
 ) -> anyhow::Result<&'a TableMetadata> {
     let table = match &select.from.first().unwrap().relation {
-        TableFactor::Table {
-            name, ..
-        } => {
+        TableFactor::Table { name, .. } => {
             let table_name = name.to_string();
             keyspace
                 .tables
