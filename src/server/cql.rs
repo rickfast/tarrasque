@@ -5,16 +5,16 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::cql::codec::CqlFrameCodec;
 use crate::cql::operation::Operation;
-use crate::db::{Database, Results};
 use crate::cql::response::error::Error as CqlError;
 use crate::cql::response::result::{Flags, Metadata, Result as CqlResult};
+use crate::db::data::{Row, Value};
+use crate::db::error::DbError;
+use crate::db::Database;
 use futures::sink::SinkExt;
 use std::env;
 use std::error::Error;
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
-use crate::db::data::{Row, Value};
-use crate::db::error::DbError;
 
 const _256MB: usize = 26435456;
 
@@ -63,11 +63,11 @@ async fn exchange(server: &mut Framed<TcpStream, CqlFrameCodec>) -> Result<(), B
                 Operation::Query(query) => match database.clone().query(query) {
                     Ok(result) => {
                         let iterator = result.result;
-                        let items = iterator.map(|row| {
-                            Row {
+                        let items = iterator
+                            .map(|row| Row {
                                 columns: row.into_iter().collect::<Vec<Value>>(),
-                            }
-                        }).collect::<Vec<Row>>();
+                            })
+                            .collect::<Vec<Row>>();
 
                         let result = CqlResult::Rows {
                             rows: items.clone(),

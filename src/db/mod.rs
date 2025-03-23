@@ -40,6 +40,8 @@ impl Database {
         let parsed_query = parse(query.query, self.keyspaces.get("default").unwrap().clone())?;
         let results = execute(&self.fjall, parsed_query)?;
 
-        Ok(Results { result: Box::new(results) })
+        Ok(Results {
+            result: Box::new(results),
+        })
     }
 }

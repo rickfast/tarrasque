@@ -1,5 +1,5 @@
-use crate::db::data::{ColumnType, Row};
-use crate::serde::writer::{int, string};
+use crate::db::data::{ColumnType, Row, Value};
+use crate::serde::writer::{bool, bytes, double, float, int, long, short, string, tinyint};
 use bitflags::bitflags;
 use bytes::BytesMut;
 
@@ -63,7 +63,11 @@ pub(crate) fn encode(src: Result, dst: &mut BytesMut) -> anyhow::Result<()> {
     match src {
         Result::Void => int!(dst, 01),
         Result::SetKeyspace(keyspace) => string!(dst, keyspace),
-        Result::Rows { metadata, row_count: _, rows: _ } => {
+        Result::Rows {
+            metadata,
+            row_count: _,
+            rows,
+        } => {
             let metadata = metadata;
             let flags = metadata.flags;
 
@@ -77,6 +81,32 @@ pub(crate) fn encode(src: Result, dst: &mut BytesMut) -> anyhow::Result<()> {
                 }
                 None => {
                     unimplemented!()
+                }
+            }
+
+            for row in rows {
+                for column in row.columns {
+                    match column {
+                        Value::Int(value) => int!(dst, value),
+                        Value::Ascii(value) => bytes!(dst, value.as_slice()),
+                        Value::Bigint(value) => long!(dst, value),
+                        Value::Blob(value) => bytes!(dst, value.as_slice()),
+                        Value::Boolean(value) => bool!(dst, value),
+                        Value::Counter(_) => {}
+                        Value::Decimal(_) => {}
+                        Value::Double(value) => double!(dst, value),
+                        Value::Float(value) => float!(dst, value),
+                        Value::Timestamp(value) => long!(dst, value),
+                        Value::Uuid(uuid) => bytes!(dst, uuid.as_bytes().as_slice()),
+                        Value::Varchar(value) => string!(dst, value),
+                        Value::Varint(_) => {}
+                        Value::Timeuuid(_) => {}
+                        Value::Inet(_) => {}
+                        Value::Date(value) => int!(dst, value),
+                        Value::Time(_) => {}
+                        Value::Smallint(value) => short!(dst, value),
+                        Value::Tinyint(value) => tinyint!(dst, value),
+                    }
                 }
             }
         }

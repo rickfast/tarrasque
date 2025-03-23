@@ -14,7 +14,7 @@ pub struct ParsedQuery {
     pub projection: Vec<ParsedExpr>,
     pub filters: Vec<ParsedExpr>,
     pub table: TableMetadata,
-    pub column_count: i32
+    pub column_count: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -36,12 +36,14 @@ pub struct ProjectedColumn {
 // Parse SQL query
 pub fn parse<'a>(sql: String, keyspace: Keyspace) -> Result<ParsedQuery, DbError> {
     let dialect = CassandraDialect {};
-    let statements = Parser::parse_sql(&dialect, &sql).map_err(|error| {
-        DbError::new(ErrorCode::Invalid, error.to_string())
-    })?;
+    let statements = Parser::parse_sql(&dialect, &sql)
+        .map_err(|error| DbError::new(ErrorCode::Invalid, error.to_string()))?;
 
     if statements.len() != 1 {
-        return Err(DbError::new(ErrorCode::Invalid, "Only one statement is supported".to_string()));
+        return Err(DbError::new(
+            ErrorCode::Invalid,
+            "Only one statement is supported".to_string(),
+        ));
         // return Err(anyhow::anyhow!("Only one statement is supported"));
     }
 
@@ -60,7 +62,7 @@ pub fn parse<'a>(sql: String, keyspace: Keyspace) -> Result<ParsedQuery, DbError
                 clustering_key: vec![],
                 projection: projection.clone(),
                 table: table.clone(),
-                column_count: projection.len() as i32
+                column_count: projection.len() as i32,
             })
         } else {
             unimplemented!()

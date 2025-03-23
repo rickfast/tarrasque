@@ -168,7 +168,7 @@ mod tests {
             ],
             filters: vec![],
             table,
-            column_count: 2
+            column_count: 2,
         };
 
         // Call the execute function
