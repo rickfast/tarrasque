@@ -11,7 +11,8 @@ use crate::db::data::Value;
 use crate::db::dialect::CassandraDialect;
 use crate::db::error::DbError;
 use crate::db::execution::execute;
-use crate::db::parse::parse;
+use crate::db::parse::ParsedStatement::{Create, Select};
+use crate::db::parse::{parse, ParsedStatement};
 use crate::db::schema::Keyspace;
 use fjall::{Config, Keyspace as FjallKeyspace};
 use std::collections::HashMap;
@@ -38,10 +39,17 @@ impl Database {
 
     pub fn query(self, query: Query) -> Result<Results, DbError> {
         let parsed_query = parse(query.query, self.keyspaces.get("default").unwrap().clone())?;
-        let results = execute(&self.fjall, parsed_query)?;
 
-        Ok(Results {
-            result: Box::new(results),
-        })
+        match parsed_query {
+            Select(query) => {
+                let results = execute(&self.fjall, query)?;
+                Ok(Results {
+                    result: Box::new(results),
+                })
+            }
+            Create(_) => {
+                unimplemented!("Create table not implemented")
+            }
+        }
     }
 }

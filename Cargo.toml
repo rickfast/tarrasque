@@ -18,3 +18,4 @@ uuid = { version = "1.13.1", features = ["v4"] }
 bitflags = "2.8.0"
 fjall = "2.6.5"
 indexmap = "2.7.1"
+tempfile = "3.17.1"

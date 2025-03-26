@@ -33,7 +33,7 @@ pub struct ColumnMetadata {
     pub kind: Kind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
     PartitionKey,
     Clustering,

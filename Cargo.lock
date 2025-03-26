@@ -649,6 +649,7 @@ dependencies = [
  "indexmap",
  "num-traits",
  "sqlparser",
+ "tempfile",
  "tokio",
  "tokio-macros",
  "tokio-stream",
