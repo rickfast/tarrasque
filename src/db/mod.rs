@@ -10,7 +10,7 @@ use crate::cql::request::query::Query;
 use crate::db::data::Value;
 use crate::db::dialect::CassandraDialect;
 use crate::db::error::DbError;
-use crate::db::execution::execute_select;
+use crate::db::execution::{execute_create_table, execute_select};
 use crate::db::parse::ParsedStatement::{Create, Select};
 use crate::db::parse::parse;
 use crate::db::schema::Tables;
@@ -41,9 +41,14 @@ impl<'db> Database<'_> {
                     result: Box::new(results),
                 })
             }
-            Create(_) => {
-                unimplemented!("Create table not implemented")
+            Create(table_metadata) => {
+                let results = execute_create_table(&table_metadata, &Arc::clone(self.tables)).await?;
+                Ok(Results {
+                    result: Box::new(results)
+                })
             }
         }
     }
 }
+
+

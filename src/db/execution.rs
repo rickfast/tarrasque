@@ -1,13 +1,14 @@
 use crate::db::data::{Row, Value};
 use crate::db::error::{DbError, ErrorCode};
 use crate::db::parse::{ParsedExpr, ParsedQuery};
-use crate::db::schema::TableMetadata;
+use crate::db::schema::{TableMetadata, Tables};
 use crate::db::Database;
 use fjall::{Keyspace, KvPair, PartitionCreateOptions};
 use std::collections::HashMap;
 use std::iter::empty;
 use std::ops::Not;
 use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
 
 pub fn execute_select<'a>(
     keyspace: &Keyspace,
@@ -56,11 +57,8 @@ pub fn execute_select<'a>(
 
 pub async fn execute_create_table(
     table_metadata: &TableMetadata,
-    database: Arc<Mutex<Database<'_>>>,
+    tables: &Arc<RwLock<Tables>>
 ) -> Result<impl Iterator<Item = Vec<Value>>, DbError> {
-    let db = Arc::clone(&database);
-    let tables = Arc::clone(&db.lock().unwrap().tables);
-
     tables
         .write()
         .await
@@ -98,7 +96,7 @@ mod tests {
     use super::*;
     use crate::db::data::{ColumnType, Row, Value};
     use crate::db::parse::ProjectedColumn;
-    use crate::db::schema::{ColumnMetadata, Keyspace, Kind, TableMetadata};
+    use crate::db::schema::{ColumnMetadata, Keyspace, Kind, TableMetadata, Tables};
     use fjall::Keyspace as FjallKeyspace;
     use fjall::{Config, PartitionCreateOptions};
     use indexmap::IndexMap;
@@ -234,29 +232,27 @@ mod tests {
                 cluster_key: vec![],
             };
 
-            // Create a mock database
             let tables = Tables::new();
             let binding = Arc::new(RwLock::new(tables));
             let fjall = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
-            let database = Arc::new(Mutex::new(Database {
+            let database = Arc::new(RwLock::new(Database {
                 name: "test_db",
                 tables: &binding,
                 fjall: &fjall,
             }));
 
-            // Execute the create table function
-            let result = execute_create_table(&table_metadata, Arc::clone(&database)).await;
+            let result = execute_create_table(&table_metadata, Arc::clone(&database).read().await.tables).await;
 
-            // Check the result
             assert!(result.is_ok());
 
             let db = Arc::clone(&database);
 
-            // Verify the table was added to the database
-            assert!(db.lock().unwrap().tables.read().await.contains_key("users"));
-            let binding = db.lock().unwrap();
-            let binding2 = binding.tables.read().await;
-            let created_table = binding2.get("users").unwrap();
+            assert!(db.read().await.tables.read().await.contains_key("users"));
+
+            let db2 = db.read().await;
+            let tables2 = db2.tables.read().await;
+            let created_table = tables2.get("users").unwrap();
+
             assert_eq!(created_table.name, "users");
             assert_eq!(created_table.columns.len(), 2);
             assert_eq!(created_table.columns.get("id").unwrap().name, "id");
