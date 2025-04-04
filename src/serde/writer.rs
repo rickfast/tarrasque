@@ -37,7 +37,6 @@ pub(crate) use int;
 pub(crate) use long;
 pub(crate) use short;
 pub(crate) use tinyint;
-pub(crate) use unsigned_short;
 
 macro_rules! float {
     ($bytes:expr, $value:expr) => {{

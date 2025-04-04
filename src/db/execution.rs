@@ -1,7 +1,7 @@
 use crate::db::data::{Row, Value};
 use crate::db::error::{DbError, ErrorCode};
 use crate::db::parse::{ParsedExpr, ParsedQuery};
-use crate::db::schema::{TableMetadata, Tables};
+use crate::db::schema::TableMetadata;
 use crate::db::Database;
 use fjall::{Keyspace, KvPair, PartitionCreateOptions};
 use std::collections::HashMap;
@@ -58,8 +58,8 @@ pub async fn execute_create_table(
     table_metadata: &TableMetadata,
     database: Arc<Mutex<Database<'_>>>,
 ) -> Result<impl Iterator<Item = Vec<Value>>, DbError> {
-    let mut db = Arc::clone(&database);
-    let mut tables = Arc::clone(&db.lock().unwrap().tables);
+    let db = Arc::clone(&database);
+    let tables = Arc::clone(&db.lock().unwrap().tables);
 
     tables
         .write()
@@ -102,7 +102,7 @@ mod tests {
     use fjall::Keyspace as FjallKeyspace;
     use fjall::{Config, PartitionCreateOptions};
     use indexmap::IndexMap;
-    use std::collections::HashMap;
+    
     use std::sync::Mutex;
     use tokio::sync::RwLock;
 

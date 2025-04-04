@@ -14,8 +14,7 @@ use fjall::{Config, Keyspace};
 use futures::sink::SinkExt;
 use std::env;
 use std::error::Error;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
@@ -71,7 +70,7 @@ async fn exchange(
                         ])))
                         .await?;
                 }
-                Operation::Query(query) => match db.clone().query(query).await {
+                Operation::Query(query) => match db.query(query).await {
                     Ok(result) => {
                         let iterator = result.result;
                         let items = iterator

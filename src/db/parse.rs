@@ -1,8 +1,7 @@
 use crate::db::data::{ColumnType, Value};
 use crate::db::dialect::CassandraDialect;
 use crate::db::error::{DbError, ErrorCode};
-use crate::db::schema::{ColumnMetadata, Keyspace, Kind, TableMetadata, Tables};
-use crate::db::Database;
+use crate::db::schema::{ColumnMetadata, Kind, TableMetadata, Tables};
 use anyhow::anyhow;
 use indexmap::IndexMap;
 use sqlparser::ast::{
@@ -10,11 +9,8 @@ use sqlparser::ast::{
     TableFactor,
 };
 use sqlparser::parser::Parser;
-use std::cell::RefCell;
-use std::cmp::PartialEq;
-use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub enum ParsedStatement {
@@ -239,7 +235,7 @@ fn analyze_where_clause(
 mod tests {
     use super::*;
     use crate::db::data::ColumnType;
-    use crate::db::schema::{ColumnMetadata, Keyspace, Kind, TableMetadata};
+    use crate::db::schema::{ColumnMetadata, Kind, TableMetadata};
     use indexmap::IndexMap;
     use std::collections::HashMap;
 
@@ -300,7 +296,7 @@ mod tests {
             partition_key: vec!["id".to_string()],
             cluster_key: vec![],
         };
-        let mut tables = Arc::new(RwLock::new(HashMap::new()));
+        let tables = Arc::new(RwLock::new(HashMap::new()));
 
         tokio_test::block_on(tables.write()).insert("users".to_string(), table);
 

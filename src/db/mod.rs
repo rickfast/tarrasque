@@ -12,13 +12,10 @@ use crate::db::dialect::CassandraDialect;
 use crate::db::error::DbError;
 use crate::db::execution::execute_select;
 use crate::db::parse::ParsedStatement::{Create, Select};
-use crate::db::parse::{parse, ParsedStatement};
-use crate::db::schema::{Keyspace, TableMetadata, Tables};
-use fjall::{Config, Keyspace as FjallKeyspace};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use crate::db::parse::parse;
+use crate::db::schema::Tables;
+use fjall::Keyspace as FjallKeyspace;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 static DIALECT: CassandraDialect = CassandraDialect {};
