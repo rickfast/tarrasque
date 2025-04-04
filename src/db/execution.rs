@@ -2,12 +2,11 @@ use crate::db::data::{Row, Value};
 use crate::db::error::{DbError, ErrorCode};
 use crate::db::parse::{ParsedExpr, ParsedQuery};
 use crate::db::schema::{TableMetadata, Tables};
-use crate::db::Database;
 use fjall::{Keyspace, KvPair, PartitionCreateOptions};
 use std::collections::HashMap;
 use std::iter::empty;
 use std::ops::Not;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub fn execute_select<'a>(
@@ -103,6 +102,7 @@ mod tests {
 
     use std::sync::Mutex;
     use tokio::sync::RwLock;
+    use crate::db::Database;
 
     #[test]
     fn test_x() {
