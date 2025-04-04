@@ -57,7 +57,7 @@ pub fn execute_select<'a>(
 
 pub async fn execute_create_table(
     table_metadata: &TableMetadata,
-    tables: &Arc<RwLock<Tables>>
+    tables: &Arc<RwLock<Tables>>,
 ) -> Result<impl Iterator<Item = Vec<Value>>, DbError> {
     tables
         .write()
@@ -100,7 +100,7 @@ mod tests {
     use fjall::Keyspace as FjallKeyspace;
     use fjall::{Config, PartitionCreateOptions};
     use indexmap::IndexMap;
-    
+
     use std::sync::Mutex;
     use tokio::sync::RwLock;
 
@@ -241,7 +241,9 @@ mod tests {
                 fjall: &fjall,
             }));
 
-            let result = execute_create_table(&table_metadata, Arc::clone(&database).read().await.tables).await;
+            let result =
+                execute_create_table(&table_metadata, Arc::clone(&database).read().await.tables)
+                    .await;
 
             assert!(result.is_ok());
 

@@ -11,8 +11,8 @@ use crate::db::data::Value;
 use crate::db::dialect::CassandraDialect;
 use crate::db::error::DbError;
 use crate::db::execution::{execute_create_table, execute_select};
-use crate::db::parse::ParsedStatement::{Create, Select};
 use crate::db::parse::parse;
+use crate::db::parse::ParsedStatement::{Create, Select};
 use crate::db::schema::Tables;
 use fjall::Keyspace as FjallKeyspace;
 use std::sync::Arc;
@@ -42,13 +42,12 @@ impl<'db> Database<'_> {
                 })
             }
             Create(table_metadata) => {
-                let results = execute_create_table(&table_metadata, &Arc::clone(self.tables)).await?;
+                let results =
+                    execute_create_table(&table_metadata, &Arc::clone(self.tables)).await?;
                 Ok(Results {
-                    result: Box::new(results)
+                    result: Box::new(results),
                 })
             }
         }
     }
 }
-
-
