@@ -13,6 +13,9 @@ use crate::db::Database;
 use futures::sink::SinkExt;
 use std::env;
 use std::error::Error;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use fjall::{Config, Keyspace};
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
 
@@ -24,10 +27,16 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "127.0.0.1:9042".to_string());
     let conn = TcpListener::bind(addr).await?;
 
+    let database = Database {
+        name: "default",
+        fjall: &Keyspace::open(Config::new("/tmp/x")).unwrap(),
+        tables: &Arc::new(Mutex::new(HashMap::new()))
+    };
+
     match conn.accept().await {
         Ok((socket, _addr)) => {
             let mut server = Framed::new(socket, CqlFrameCodec::new());
-            exchange(&mut server).await?;
+            exchange(&mut server, &database).await?;
         }
         Err(_) => {}
     }
@@ -35,9 +44,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn exchange(server: &mut Framed<TcpStream, CqlFrameCodec>) -> Result<(), Box<dyn Error>> {
-    let database = Database::new(HashMap::new());
-
+async fn exchange(server: &mut Framed<TcpStream, CqlFrameCodec>, db: &Database<'_>) -> Result<(), Box<dyn Error>> {
     while let Some(result) = server.next().await {
         match result {
             Ok(frame) => match frame {
@@ -60,7 +67,7 @@ async fn exchange(server: &mut Framed<TcpStream, CqlFrameCodec>) -> Result<(), B
                         ])))
                         .await?;
                 }
-                Operation::Query(query) => match database.clone().query(query) {
+                Operation::Query(query) => match db.clone().query(query) {
                     Ok(result) => {
                         let iterator = result.result;
                         let items = iterator

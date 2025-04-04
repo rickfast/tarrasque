@@ -3,9 +3,13 @@ use crate::db::error::{DbError, ErrorCode};
 use crate::db::parse::{ParsedExpr, ParsedQuery};
 use fjall::{Keyspace, KvPair, PartitionCreateOptions};
 use std::collections::HashMap;
+use std::iter::empty;
 use std::ops::Not;
+use std::sync::{Arc, Mutex};
+use crate::db::Database;
+use crate::db::schema::{TableMetadata, Tables};
 
-pub fn execute<'a>(
+pub fn execute_select<'a>(
     keyspace: &Keyspace,
     parsed_query: ParsedQuery,
 ) -> Result<impl Iterator<Item = Vec<Value>>, DbError> {
@@ -50,6 +54,19 @@ pub fn execute<'a>(
     Ok(results)
 }
 
+pub fn execute_create_table(table_metadata: &TableMetadata,
+                            database: Arc<Mutex<Database>>
+) -> Result<impl Iterator<Item=Vec<Value>>, DbError> {
+    let mut db = Arc::clone(&database);
+    let mut tables = Arc::clone(&db.lock().unwrap().tables);
+
+    tables.lock()
+        .unwrap()
+        .insert(table_metadata.name.clone(), table_metadata.clone());
+
+    Ok(empty())
+}
+
 type Function = fn(Vec<Value>) -> Value;
 
 impl ParsedExpr {
@@ -84,6 +101,7 @@ mod tests {
     use fjall::{Config, PartitionCreateOptions};
     use indexmap::IndexMap;
     use std::collections::HashMap;
+    use std::sync::Mutex;
 
     #[test]
     fn test_x() {
@@ -97,6 +115,8 @@ mod tests {
 
         assert_eq!(1, count);
     }
+
+
 
     #[test]
     fn test_execute() {
@@ -123,17 +143,16 @@ mod tests {
         let table = TableMetadata {
             name: "users".to_string(),
             columns,
-            keyspace: "test_keyspace".to_string(),
             partition_key: vec!["id".to_string()],
             cluster_key: vec![],
         };
-        let mut tables = HashMap::new();
+        let mut tables = &mut Tables::new();
 
         tables.insert("users".to_string(), table.clone());
 
         let keyspace = Keyspace {
             name: "test_keyspace".to_string(),
-            tables,
+            tables: &mut tables,
         };
 
         let ks = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
@@ -172,7 +191,7 @@ mod tests {
         };
 
         // Call the execute function
-        let result = execute(&ks, parsed_query);
+        let result = execute_select(&ks, parsed_query);
 
         // Check the result
         assert!(result.is_ok());
@@ -183,5 +202,62 @@ mod tests {
         assert_eq!(row.len(), 2);
         assert_eq!(row[0], Value::Smallint(1));
         assert_eq!(row[1], Value::Varchar("row1".to_string()));
+    }
+
+    #[test]
+    fn test_execute_create_table() {
+        // Create a mock table metadata
+        let mut columns = IndexMap::new();
+        columns.insert(
+            "id".to_string(),
+            ColumnMetadata {
+                name: "id".to_string(),
+                column_type: ColumnType::Int,
+                kind: Kind::PartitionKey,
+            },
+        );
+        columns.insert(
+            "name".to_string(),
+            ColumnMetadata {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+                kind: Kind::Regular,
+            },
+        );
+
+        let table_metadata = TableMetadata {
+            name: "users".to_string(),
+            columns,
+            partition_key: vec!["id".to_string()],
+            cluster_key: vec![],
+        };
+
+        // Create a mock database
+        let tables = Tables::new();
+        let binding = Arc::new(Mutex::new(tables));
+        let fjall = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
+        let database = Arc::new(Mutex::new(Database {
+            name: "test_db",
+            tables: &binding,
+            fjall: &fjall,
+        }));
+
+        // Execute the create table function
+        let result = execute_create_table(&table_metadata, Arc::clone(&database));
+
+        // Check the result
+        assert!(result.is_ok());
+
+        let db = Arc::clone(&database);
+
+        // Verify the table was added to the database
+        assert!(db.lock().unwrap().tables.lock().unwrap().contains_key("users"));
+        let binding = db.lock().unwrap();
+        let binding2 = binding.tables.lock().unwrap();
+        let created_table = binding2.get("users").unwrap();
+        assert_eq!(created_table.name, "users");
+        assert_eq!(created_table.columns.len(), 2);
+        assert_eq!(created_table.columns.get("id").unwrap().name, "id");
+        assert_eq!(created_table.columns.get("name").unwrap().name, "name");
     }
 }
