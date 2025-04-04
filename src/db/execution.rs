@@ -1,13 +1,13 @@
 use crate::db::data::{Row, Value};
 use crate::db::error::{DbError, ErrorCode};
 use crate::db::parse::{ParsedExpr, ParsedQuery};
+use crate::db::schema::{TableMetadata, Tables};
+use crate::db::Database;
 use fjall::{Keyspace, KvPair, PartitionCreateOptions};
 use std::collections::HashMap;
 use std::iter::empty;
 use std::ops::Not;
 use std::sync::{Arc, Mutex};
-use crate::db::Database;
-use crate::db::schema::{TableMetadata, Tables};
 
 pub fn execute_select<'a>(
     keyspace: &Keyspace,
@@ -54,14 +54,16 @@ pub fn execute_select<'a>(
     Ok(results)
 }
 
-pub fn execute_create_table(table_metadata: &TableMetadata,
-                            database: Arc<Mutex<Database>>
-) -> Result<impl Iterator<Item=Vec<Value>>, DbError> {
+pub async fn execute_create_table(
+    table_metadata: &TableMetadata,
+    database: Arc<Mutex<Database<'_>>>,
+) -> Result<impl Iterator<Item = Vec<Value>>, DbError> {
     let mut db = Arc::clone(&database);
     let mut tables = Arc::clone(&db.lock().unwrap().tables);
 
-    tables.lock()
-        .unwrap()
+    tables
+        .write()
+        .await
         .insert(table_metadata.name.clone(), table_metadata.clone());
 
     Ok(empty())
@@ -102,6 +104,7 @@ mod tests {
     use indexmap::IndexMap;
     use std::collections::HashMap;
     use std::sync::Mutex;
+    use tokio::sync::RwLock;
 
     #[test]
     fn test_x() {
@@ -115,8 +118,6 @@ mod tests {
 
         assert_eq!(1, count);
     }
-
-
 
     #[test]
     fn test_execute() {
@@ -206,58 +207,60 @@ mod tests {
 
     #[test]
     fn test_execute_create_table() {
-        // Create a mock table metadata
-        let mut columns = IndexMap::new();
-        columns.insert(
-            "id".to_string(),
-            ColumnMetadata {
-                name: "id".to_string(),
-                column_type: ColumnType::Int,
-                kind: Kind::PartitionKey,
-            },
-        );
-        columns.insert(
-            "name".to_string(),
-            ColumnMetadata {
-                name: "name".to_string(),
-                column_type: ColumnType::Varchar,
-                kind: Kind::Regular,
-            },
-        );
+        tokio_test::block_on(async {
+            // Create a mock table metadata
+            let mut columns = IndexMap::new();
+            columns.insert(
+                "id".to_string(),
+                ColumnMetadata {
+                    name: "id".to_string(),
+                    column_type: ColumnType::Int,
+                    kind: Kind::PartitionKey,
+                },
+            );
+            columns.insert(
+                "name".to_string(),
+                ColumnMetadata {
+                    name: "name".to_string(),
+                    column_type: ColumnType::Varchar,
+                    kind: Kind::Regular,
+                },
+            );
 
-        let table_metadata = TableMetadata {
-            name: "users".to_string(),
-            columns,
-            partition_key: vec!["id".to_string()],
-            cluster_key: vec![],
-        };
+            let table_metadata = TableMetadata {
+                name: "users".to_string(),
+                columns,
+                partition_key: vec!["id".to_string()],
+                cluster_key: vec![],
+            };
 
-        // Create a mock database
-        let tables = Tables::new();
-        let binding = Arc::new(Mutex::new(tables));
-        let fjall = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
-        let database = Arc::new(Mutex::new(Database {
-            name: "test_db",
-            tables: &binding,
-            fjall: &fjall,
-        }));
+            // Create a mock database
+            let tables = Tables::new();
+            let binding = Arc::new(RwLock::new(tables));
+            let fjall = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
+            let database = Arc::new(Mutex::new(Database {
+                name: "test_db",
+                tables: &binding,
+                fjall: &fjall,
+            }));
 
-        // Execute the create table function
-        let result = execute_create_table(&table_metadata, Arc::clone(&database));
+            // Execute the create table function
+            let result = execute_create_table(&table_metadata, Arc::clone(&database)).await;
 
-        // Check the result
-        assert!(result.is_ok());
+            // Check the result
+            assert!(result.is_ok());
 
-        let db = Arc::clone(&database);
+            let db = Arc::clone(&database);
 
-        // Verify the table was added to the database
-        assert!(db.lock().unwrap().tables.lock().unwrap().contains_key("users"));
-        let binding = db.lock().unwrap();
-        let binding2 = binding.tables.lock().unwrap();
-        let created_table = binding2.get("users").unwrap();
-        assert_eq!(created_table.name, "users");
-        assert_eq!(created_table.columns.len(), 2);
-        assert_eq!(created_table.columns.get("id").unwrap().name, "id");
-        assert_eq!(created_table.columns.get("name").unwrap().name, "name");
+            // Verify the table was added to the database
+            assert!(db.lock().unwrap().tables.read().await.contains_key("users"));
+            let binding = db.lock().unwrap();
+            let binding2 = binding.tables.read().await;
+            let created_table = binding2.get("users").unwrap();
+            assert_eq!(created_table.name, "users");
+            assert_eq!(created_table.columns.len(), 2);
+            assert_eq!(created_table.columns.get("id").unwrap().name, "id");
+            assert_eq!(created_table.columns.get("name").unwrap().name, "name");
+        })
     }
 }

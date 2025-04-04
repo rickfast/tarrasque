@@ -6,7 +6,6 @@ mod parse;
 pub mod schema;
 mod visitor;
 
-use std::cell::RefCell;
 use crate::cql::request::query::Query;
 use crate::db::data::Value;
 use crate::db::dialect::CassandraDialect;
@@ -16,15 +15,17 @@ use crate::db::parse::ParsedStatement::{Create, Select};
 use crate::db::parse::{parse, ParsedStatement};
 use crate::db::schema::{Keyspace, TableMetadata, Tables};
 use fjall::{Config, Keyspace as FjallKeyspace};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
 
 static DIALECT: CassandraDialect = CassandraDialect {};
 
 pub struct Database<'db> {
     pub name: &'db str,
-    pub tables: &'db Arc<Mutex<Tables>>,
+    pub tables: &'db Arc<RwLock<Tables>>,
     pub fjall: &'db FjallKeyspace,
 }
 
@@ -33,8 +34,8 @@ pub struct Results {
 }
 
 impl<'db> Database<'_> {
-    pub fn query(&self, query: Query) -> Result<Results, DbError> {
-        let parsed_query = parse(query.query, self.tables)?;
+    pub async fn query(&self, query: Query) -> Result<Results, DbError> {
+        let parsed_query = parse(query.query, self.tables).await?;
 
         match parsed_query {
             Select(query) => {

@@ -1,8 +1,8 @@
-use std::cell::RefCell;
 use crate::db::data::{ColumnType, Value};
 use crate::db::dialect::CassandraDialect;
 use crate::db::error::{DbError, ErrorCode};
 use crate::db::schema::{ColumnMetadata, Keyspace, Kind, TableMetadata, Tables};
+use crate::db::Database;
 use anyhow::anyhow;
 use indexmap::IndexMap;
 use sqlparser::ast::{
@@ -10,11 +10,12 @@ use sqlparser::ast::{
     TableFactor,
 };
 use sqlparser::parser::Parser;
+use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
-use crate::db::Database;
+use tokio::sync::RwLock;
 
 pub enum ParsedStatement {
     Select(ParsedQuery),
@@ -48,7 +49,10 @@ pub struct ProjectedColumn {
 }
 
 // Parse SQL query
-pub fn parse<'a>(sql: String, table_metadata: &Arc<Mutex<Tables>>) -> Result<ParsedStatement, DbError> {
+pub async fn parse<'a>(
+    sql: String,
+    table_metadata: &Arc<RwLock<Tables>>,
+) -> Result<ParsedStatement, DbError> {
     let dialect = CassandraDialect {};
     let statements = Parser::parse_sql(&dialect, &sql)
         .map_err(|error| DbError::new(ErrorCode::Invalid, error.to_string()))?;
@@ -64,7 +68,7 @@ pub fn parse<'a>(sql: String, table_metadata: &Arc<Mutex<Tables>>) -> Result<Par
 
     match statement {
         Statement::CreateTable(create_table) => parse_create_table(&create_table),
-        Statement::Query(query) => parse_select(table_metadata, &query),
+        Statement::Query(query) => parse_select(table_metadata, &query).await,
         _ => {
             unimplemented!()
         }
@@ -72,9 +76,13 @@ pub fn parse<'a>(sql: String, table_metadata: &Arc<Mutex<Tables>>) -> Result<Par
 }
 
 // Parse SELECT statement
-fn parse_select(table_metadata: &Arc<Mutex<Tables>>, query: &Box<Query>) -> Result<ParsedStatement, DbError> {
+async fn parse_select(
+    table_metadata: &Arc<RwLock<Tables>>,
+    query: &Box<Query>,
+) -> Result<ParsedStatement, DbError> {
     if let SetExpr::Select(select) = &query.body.deref() {
         let table = derive_table_metadata(&table_metadata, &select)
+            .await
             .map_err(|error| DbError::new(ErrorCode::Invalid, "".to_string()))?;
         let projection: Vec<ParsedExpr> = derive_projection(&select, &table)
             .map_err(|error| DbError::new(ErrorCode::Invalid, "".to_string()))?;
@@ -92,9 +100,7 @@ fn parse_select(table_metadata: &Arc<Mutex<Tables>>, query: &Box<Query>) -> Resu
     }
 }
 
-fn parse_create_table(
-    create_table: &CreateTable,
-) -> Result<ParsedStatement, DbError> {
+fn parse_create_table(create_table: &CreateTable) -> Result<ParsedStatement, DbError> {
     let mut columns = IndexMap::new();
 
     for column_def in &create_table.columns {
@@ -184,8 +190,8 @@ fn derive_projection(
         .collect::<anyhow::Result<Vec<ParsedExpr>>>()
 }
 
-fn derive_table_metadata(
-    tables: &Arc<Mutex<Tables>>,
+async fn derive_table_metadata(
+    tables: &Arc<RwLock<Tables>>,
     select: &Box<Select>,
 ) -> anyhow::Result<TableMetadata> {
     let table = match &select.from.first().unwrap().relation {
@@ -193,8 +199,8 @@ fn derive_table_metadata(
             let table_name = name.to_string();
 
             tables
-                .lock()
-                .unwrap()
+                .read()
+                .await
                 .get(&table_name)
                 .ok_or_else(|| anyhow::anyhow!("Table not found"))?
                 .clone()
@@ -239,9 +245,10 @@ mod tests {
 
     #[test]
     fn test_parse_create_table() {
-        let tables = Arc::new(Mutex::new(HashMap::new()));
+        let tables = Arc::new(RwLock::new(HashMap::new()));
         let sql = "CREATE TABLE users (id smallint PRIMARY KEY, name varchar)".to_string();
-        let result = parse(sql, &tables);
+
+        let result = tokio_test::block_on(parse(sql, &tables));
 
         assert!(result.is_ok());
 
@@ -293,14 +300,14 @@ mod tests {
             partition_key: vec!["id".to_string()],
             cluster_key: vec![],
         };
-        let mut tables = Arc::new(Mutex::new(HashMap::new()));
+        let mut tables = Arc::new(RwLock::new(HashMap::new()));
 
-        tables.lock().expect("").insert("users".to_string(), table);
+        tokio_test::block_on(tables.write()).insert("users".to_string(), table);
 
         let sql = "SELECT id, name FROM users".to_string();
 
         // Call the parse function
-        let result = parse(sql, &tables);
+        let result = tokio_test::block_on(parse(sql, &tables));
 
         // Check the result
         assert!(result.is_ok());
