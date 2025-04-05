@@ -12,7 +12,7 @@ use crate::db::dialect::CassandraDialect;
 use crate::db::error::DbError;
 use crate::db::execution::{execute_create_table, execute_select};
 use crate::db::parse::parse;
-use crate::db::parse::ParsedStatement::{Create, Select};
+use crate::db::parse::ParsedStatement::{Create, Select, Insert};
 use crate::db::schema::Tables;
 use fjall::Keyspace as FjallKeyspace;
 use std::sync::Arc;
@@ -47,6 +47,9 @@ impl<'db> Database<'_> {
                 Ok(Results {
                     result: Box::new(results),
                 })
+            },
+            Insert(insert) => {
+                unimplemented!()
             }
         }
     }

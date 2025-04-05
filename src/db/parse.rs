@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 pub enum ParsedStatement {
     Select(ParsedQuery),
     Create(TableMetadata),
+    Insert(ParsedInsert)
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +27,14 @@ pub struct ParsedQuery {
     pub filters: Vec<ParsedExpr>,
     pub table: TableMetadata,
     pub column_count: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedInsert {
+    pub table: TableMetadata,
+    pub partition_key: Vec<String>,
+    pub clustering_key: Vec<String>,
+    pub values: Vec<ParsedExpr>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +103,63 @@ async fn parse_select(
     } else {
         unimplemented!()
     }
+}
+
+async fn parse_insert(
+    table_metadata: &Arc<RwLock<Tables>>,
+    insert: &Box<sqlparser::ast::Insert>,
+) -> Result<ParsedStatement, DbError> {
+    let table_name = insert.table_name.to_string();
+    let table = table_metadata
+        .read()
+        .await
+        .get(&table_name)
+        .ok_or_else(|| DbError::new(ErrorCode::Invalid, "Table not found".to_string()))?
+        .clone();
+
+    let mut partition_key = vec![];
+    let mut clustering_key = vec![];
+    let mut values = vec![];
+
+    for (i, column) in insert.columns.iter().enumerate() {
+        let column_name = column.value.clone();
+
+        let column_metadata = table.columns.get(&column_name).ok_or_else(|| {
+            DbError::new(ErrorCode::Invalid, format!("Column {} not found", column_name))
+        })?;
+
+        // let value_expr = &insert.source.clone().unwrap().body.as_ref().unwrap().values().unwrap()[0][i];
+        let body = *insert.source.clone().unwrap().body;
+        let value_expr = match body {
+            SetExpr::Values(ref values) => {
+                if i < values.rows[0].len() {
+                    &values.rows[0][i]
+                } else {
+                    return Err(DbError::new(ErrorCode::Invalid, "Value not found".to_string()));
+                }
+            }
+            _ => return Err(DbError::new(ErrorCode::Invalid, "Unsupported insert source".to_string())),
+        };
+        let value = match value_expr {
+            Expr::Value(val) => ParsedExpr::Literal(Value::from_sql_value(val)),
+            _ => return Err(DbError::new(ErrorCode::Invalid, "Unsupported value expression".to_string())),
+        };
+
+        values.push(value);
+
+        match column_metadata.kind {
+            Kind::PartitionKey => partition_key.push(column_name),
+            Kind::Clustering => clustering_key.push(column_name),
+            _ => {}
+        }
+    }
+
+    Ok(ParsedStatement::Insert(ParsedInsert {
+        table,
+        partition_key,
+        clustering_key,
+        values,
+    }))
 }
 
 fn parse_create_table(create_table: &CreateTable) -> Result<ParsedStatement, DbError> {
@@ -239,6 +305,54 @@ mod tests {
     use indexmap::IndexMap;
     use std::collections::HashMap;
 
+    #[tokio::test]
+    async fn parse_insert_valid() {
+        let mut columns = IndexMap::new();
+        columns.insert(
+            "id".to_string(),
+            ColumnMetadata {
+                name: "id".to_string(),
+                column_type: ColumnType::Int,
+                kind: Kind::PartitionKey,
+            },
+        );
+        columns.insert(
+            "name".to_string(),
+            ColumnMetadata {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+                kind: Kind::Regular,
+            },
+        );
+
+        let table = TableMetadata {
+            name: "users".to_string(),
+            columns,
+            partition_key: vec!["id".to_string()],
+            cluster_key: vec![],
+        };
+
+        let tables = Arc::new(RwLock::new(HashMap::new()));
+        tables.write().await.insert("users".to_string(), table);
+
+        let sql = "INSERT INTO users (id, name) VALUES (1, 'John Doe')".to_string();
+        let insert = Parser::parse_sql(&CassandraDialect {}, &sql).unwrap().pop().unwrap();
+
+        if let Statement::Insert(insert) = insert {
+            let result = parse_insert(&tables, &Box::new(insert)).await;
+            assert!(result.is_ok());
+
+            if let ParsedStatement::Insert(parsed_insert) = result.unwrap() {
+                assert_eq!(parsed_insert.table.name, "users");
+                assert_eq!(parsed_insert.values.len(), 2);
+            } else {
+                panic!("Expected ParsedStatement::Insert");
+            }
+        } else {
+            panic!("Expected Statement::Insert");
+        }
+    }
+
     #[test]
     fn test_parse_create_table() {
         let tables = Arc::new(RwLock::new(HashMap::new()));
@@ -327,7 +441,7 @@ mod tests {
                     panic!("Expected ParsedExpr::Column");
                 }
             }
-            ParsedStatement::Create(_) => {
+            _ => {
                 panic!("Expected SELECT")
             }
         }

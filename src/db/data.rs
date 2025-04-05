@@ -1,6 +1,7 @@
 use fjall::Slice;
 use std::fmt::Debug;
 use uuid::Uuid;
+use sqlparser::ast::Value as SqlValue;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum ColumnType {
@@ -122,6 +123,28 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn from_sql_value(value: &SqlValue) -> Self {
+        match value {
+            SqlValue::Number(num, _) => {
+                if let Ok(i) = num.parse::<i64>() {
+                    Value::Bigint(i)
+                } else if let Ok(i) = num.parse::<i32>() {
+                    Value::Int(i)
+                } else if let Ok(i) = num.parse::<i16>() {
+                    Value::Smallint(i)
+                } else if let Ok(i) = num.parse::<i8>() {
+                    Value::Tinyint(i)
+                } else {
+                    Value::Varchar(num.clone())
+                }
+            }
+            SqlValue::SingleQuotedString(s) => Value::Varchar(s.clone()),
+            SqlValue::Boolean(b) => Value::Boolean(*b),
+            SqlValue::Null => Value::Ascii(vec![]),
+            _ => unimplemented!(),
+        }
+    }
+
     fn column_type(&self) -> ColumnType {
         match self {
             Value::Ascii(_) => ColumnType::Ascii,
