@@ -16,7 +16,7 @@ use tokio::sync::RwLock;
 pub enum ParsedStatement {
     Select(ParsedQuery),
     Create(TableMetadata),
-    Insert(ParsedInsert)
+    Insert(ParsedInsert),
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +125,10 @@ async fn parse_insert(
         let column_name = column.value.clone();
 
         let column_metadata = table.columns.get(&column_name).ok_or_else(|| {
-            DbError::new(ErrorCode::Invalid, format!("Column {} not found", column_name))
+            DbError::new(
+                ErrorCode::Invalid,
+                format!("Column {} not found", column_name),
+            )
         })?;
 
         // let value_expr = &insert.source.clone().unwrap().body.as_ref().unwrap().values().unwrap()[0][i];
@@ -135,14 +138,27 @@ async fn parse_insert(
                 if i < values.rows[0].len() {
                     &values.rows[0][i]
                 } else {
-                    return Err(DbError::new(ErrorCode::Invalid, "Value not found".to_string()));
+                    return Err(DbError::new(
+                        ErrorCode::Invalid,
+                        "Value not found".to_string(),
+                    ));
                 }
             }
-            _ => return Err(DbError::new(ErrorCode::Invalid, "Unsupported insert source".to_string())),
+            _ => {
+                return Err(DbError::new(
+                    ErrorCode::Invalid,
+                    "Unsupported insert source".to_string(),
+                ))
+            }
         };
         let value = match value_expr {
             Expr::Value(val) => ParsedExpr::Literal(Value::from_sql_value(val)),
-            _ => return Err(DbError::new(ErrorCode::Invalid, "Unsupported value expression".to_string())),
+            _ => {
+                return Err(DbError::new(
+                    ErrorCode::Invalid,
+                    "Unsupported value expression".to_string(),
+                ))
+            }
         };
 
         values.push(value);
@@ -336,7 +352,10 @@ mod tests {
         tables.write().await.insert("users".to_string(), table);
 
         let sql = "INSERT INTO users (id, name) VALUES (1, 'John Doe')".to_string();
-        let insert = Parser::parse_sql(&CassandraDialect {}, &sql).unwrap().pop().unwrap();
+        let insert = Parser::parse_sql(&CassandraDialect {}, &sql)
+            .unwrap()
+            .pop()
+            .unwrap();
 
         if let Statement::Insert(insert) = insert {
             let result = parse_insert(&tables, &Box::new(insert)).await;

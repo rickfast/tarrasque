@@ -100,9 +100,9 @@ mod tests {
     use fjall::{Config, PartitionCreateOptions};
     use indexmap::IndexMap;
 
+    use crate::db::Database;
     use std::sync::Mutex;
     use tokio::sync::RwLock;
-    use crate::db::Database;
 
     #[test]
     fn test_x() {

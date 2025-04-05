@@ -1,7 +1,7 @@
 use fjall::Slice;
+use sqlparser::ast::Value as SqlValue;
 use std::fmt::Debug;
 use uuid::Uuid;
-use sqlparser::ast::Value as SqlValue;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum ColumnType {
