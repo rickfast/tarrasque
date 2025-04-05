@@ -101,7 +101,7 @@ mod tests {
     use indexmap::IndexMap;
 
     use crate::db::Database;
-    use std::sync::Mutex;
+    
     use tokio::sync::RwLock;
 
     #[test]
