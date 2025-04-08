@@ -1,4 +1,5 @@
 use fjall::Slice;
+use sqlparser::ast::Value as SqlValue;
 use std::fmt::Debug;
 use uuid::Uuid;
 
@@ -23,6 +24,33 @@ pub(crate) enum ColumnType {
     Time,
     Smallint,
     Tinyint,
+}
+
+impl ColumnType {
+    pub fn from_cql_type(type_str: String) -> Option<ColumnType> {
+        match type_str.to_lowercase().as_str() {
+            "ascii" => Some(ColumnType::Ascii),
+            "bigint" => Some(ColumnType::Bigint),
+            "blob" => Some(ColumnType::Blob),
+            "boolean" => Some(ColumnType::Boolean),
+            "counter" => Some(ColumnType::Counter),
+            "decimal" => Some(ColumnType::Decimal),
+            "double" => Some(ColumnType::Double),
+            "float" => Some(ColumnType::Float),
+            "int" => Some(ColumnType::Int),
+            "timestamp" => Some(ColumnType::Timestamp),
+            "uuid" => Some(ColumnType::Uuid),
+            "text" | "varchar" => Some(ColumnType::Varchar),
+            "varint" => Some(ColumnType::Varint),
+            "timeuuid" => Some(ColumnType::Timeuuid),
+            "inet" => Some(ColumnType::Inet),
+            "date" => Some(ColumnType::Date),
+            "time" => Some(ColumnType::Time),
+            "smallint" => Some(ColumnType::Smallint),
+            "tinyint" => Some(ColumnType::Tinyint),
+            _ => None,
+        }
+    }
 }
 
 const ASCII_TYPE_ID: u16 = 0x0001;
@@ -95,6 +123,28 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn from_sql_value(value: &SqlValue) -> Self {
+        match value {
+            SqlValue::Number(num, _) => {
+                if let Ok(i) = num.parse::<i64>() {
+                    Value::Bigint(i)
+                } else if let Ok(i) = num.parse::<i32>() {
+                    Value::Int(i)
+                } else if let Ok(i) = num.parse::<i16>() {
+                    Value::Smallint(i)
+                } else if let Ok(i) = num.parse::<i8>() {
+                    Value::Tinyint(i)
+                } else {
+                    Value::Varchar(num.clone())
+                }
+            }
+            SqlValue::SingleQuotedString(s) => Value::Varchar(s.clone()),
+            SqlValue::Boolean(b) => Value::Boolean(*b),
+            SqlValue::Null => Value::Ascii(vec![]),
+            _ => unimplemented!(),
+        }
+    }
+
     fn column_type(&self) -> ColumnType {
         match self {
             Value::Ascii(_) => ColumnType::Ascii,
@@ -399,6 +449,31 @@ mod tests {
             columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(43)],
         };
         assert_ne!(row1, row2);
+    }
+
+    #[test]
+    fn test_from_cql_type() {
+        assert_eq!(
+            ColumnType::from_cql_type("int".to_string()),
+            Some(ColumnType::Int)
+        );
+        assert_eq!(
+            ColumnType::from_cql_type("INT".to_string()),
+            Some(ColumnType::Int)
+        );
+        assert_eq!(
+            ColumnType::from_cql_type("text".to_string()),
+            Some(ColumnType::Varchar)
+        );
+        assert_eq!(
+            ColumnType::from_cql_type("varchar".to_string()),
+            Some(ColumnType::Varchar)
+        );
+        assert_eq!(
+            ColumnType::from_cql_type("uuid".to_string()),
+            Some(ColumnType::Uuid)
+        );
+        assert_eq!(ColumnType::from_cql_type("invalid".to_string()), None);
     }
 
     #[test]

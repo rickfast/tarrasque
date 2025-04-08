@@ -35,9 +35,8 @@ macro_rules! tinyint {
 
 pub(crate) use int;
 pub(crate) use long;
-pub(crate) use unsigned_short;
-pub(crate) use tinyint;
 pub(crate) use short;
+pub(crate) use tinyint;
 
 macro_rules! float {
     ($bytes:expr, $value:expr) => {{
@@ -53,8 +52,8 @@ macro_rules! double {
     }};
 }
 
-pub(crate) use float;
 pub(crate) use double;
+pub(crate) use float;
 
 macro_rules! bytes {
     ($bytes:expr,$value:expr) => {{
@@ -78,7 +77,6 @@ macro_rules! string {
 
 pub use bytes;
 pub(crate) use string;
-
 
 macro_rules! string_map {
     ($bytes:expr,$value:expr) => {{
@@ -170,22 +168,4 @@ mod tests {
         bool!(bytes, false);
         assert_eq!(bytes, &[0u8][..]);
     }
-
-    // #[test]
-    // fn test_string_map_macro() {
-    //     let mut bytes = BytesMut::new();
-    //     let mut map = std::collections::HashMap::new();
-    //     map.insert("key1".to_string(), "value1".to_string());
-    //     map.insert("key2".to_string(), "value2".to_string());
-    //     string_map!(bytes, map);
-    //     let mut expected = BytesMut::new();
-    //     expected.extend_from_slice(&(map.len() as u16).to_be_bytes());
-    //     for (key, value) in &map {
-    //         expected.extend_from_slice(&(key.len() as u16).to_be_bytes());
-    //         expected.extend_from_slice(key.as_bytes());
-    //         expected.extend_from_slice(&(value.len() as u16).to_be_bytes());
-    //         expected.extend_from_slice(value.as_bytes());
-    //     }
-    //     assert_eq!(bytes, expected);
-    // }
 }

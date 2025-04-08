@@ -2,15 +2,22 @@ use crate::db::data::ColumnType;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
-pub struct Keyspace {
+pub type Tables = HashMap<String, TableMetadata>;
+
+#[derive(Debug)]
+pub struct Keyspace<'a> {
     pub name: String,
-    pub tables: HashMap<String, TableMetadata>,
+    pub tables: &'a mut Tables,
+}
+
+impl Keyspace<'_> {
+    pub fn create_table(&mut self, table: TableMetadata) {
+        self.tables.insert(table.name.clone(), table);
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct TableMetadata {
-    pub keyspace: String,
     pub name: String,
     pub partition_key: Vec<String>,
     pub cluster_key: Vec<String>,
@@ -33,7 +40,7 @@ pub struct ColumnMetadata {
     pub kind: Kind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
     PartitionKey,
     Clustering,
