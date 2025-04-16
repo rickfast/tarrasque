@@ -1,6 +1,7 @@
 use fjall::Slice;
 use sqlparser::ast::Value as SqlValue;
 use std::fmt::Debug;
+use std::ops::Deref;
 use uuid::Uuid;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -198,8 +199,16 @@ impl PartialEq for Value {
 
 #[derive(Debug, Clone)]
 pub struct Row {
-    pub columns: Vec<Value>,
+    pub columns: Vec<Option<Value>>,
 }
+
+macro_rules! row {
+    ($($x:expr),+ $(,)?) => {
+        Row::from_values(vec![$($x),+])
+    };
+}
+
+pub(crate) use row;
 
 impl Row {
     fn new() -> Self {
@@ -207,6 +216,39 @@ impl Row {
             columns: Vec::new(),
         }
     }
+
+    pub fn from_values(values: Vec<Value>) -> Self {
+        Row {
+            columns: values.into_iter().map(Some).collect(),
+        }
+    }
+}
+
+struct NullableValue(Option<Value>);
+
+// impl Into<Vec<u8>> for NullableValue {
+//     fn into(self) -> Vec<u8> {
+//         match self {
+//             Some(v) => {
+//                 let mut bytes = v.into();
+//                 bytes.insert(0, 1);
+//                 bytes
+//             }
+//         }
+//     }
+// }
+
+impl Deref for NullableValue {
+    type Target = Option<Value>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+fn tests() {
+    let v = NullableValue(Some(Value::Int(42)));
+
 }
 
 impl Into<Vec<u8>> for Value {
@@ -255,6 +297,7 @@ impl Into<Vec<u8>> for Value {
         };
 
         let mut result = type_.to_vec();
+
         result.append(&mut bytes);
         result
     }
@@ -266,13 +309,25 @@ impl PartialEq for Row {
     }
 }
 
+const NOT_NULL: u8 = 1;
+const NULL: u8 = 0;
+
 impl Into<Slice> for Row {
     fn into(self) -> Slice {
         let mut bytes = Vec::new();
 
         for value in self.columns {
-            let value_bytes: Vec<u8> = value.into();
-            bytes.extend(value_bytes);
+            match value {
+                Some(v) => {
+                    let value_bytes: Vec<u8> = v.into();
+
+                    bytes.extend(vec![NOT_NULL]);
+                    bytes.extend(value_bytes);
+                }
+                None => {
+                    bytes.extend(vec![NULL]);
+                }
+            }
         }
 
         Slice::from(bytes)
@@ -281,15 +336,22 @@ impl Into<Slice> for Row {
 
 impl From<Slice> for Row {
     fn from(value: Slice) -> Self {
-        let mut columns = Vec::new();
+        let mut columns: Vec<Option<Value>> = Vec::new();
         let mut remaining = value.as_ref();
 
-        println!("Reading Row");
-
         while !remaining.is_empty() {
-            let (type_bytes, rest) = remaining.split_at(2);
+            let (present_bytes, rest) = remaining.split_at(1);
+
+            if present_bytes[0] == NULL {
+                columns.push(None);
+                remaining = rest;
+
+                continue;
+            }
+
+            let (type_bytes, rest) = rest.split_at(2);
             let type_id = u16::from_be_bytes(type_bytes.try_into().unwrap());
-            println!("- Reading Column Type ID: {}", type_id);
+
             let (column_bytes, rest) = match type_id {
                 ASCII_TYPE_ID | BLOB_TYPE_ID | DECIMAL_TYPE_ID | VARCHAR_TYPE_ID
                 | VARINT_TYPE_ID | INET_TYPE_ID => {
@@ -314,44 +376,52 @@ impl From<Slice> for Row {
                 _ => unimplemented!(),
             };
 
-            let column = match type_id {
-                ASCII_TYPE_ID => Value::Ascii(column_bytes.to_vec()),
-                BIGINT_TYPE_ID => {
-                    Value::Bigint(i64::from_be_bytes(column_bytes.try_into().unwrap()))
+            let column = {
+                match type_id {
+                    ASCII_TYPE_ID => Value::Ascii(column_bytes.to_vec()),
+                    BIGINT_TYPE_ID => {
+                        Value::Bigint(i64::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    BLOB_TYPE_ID => Value::Blob(column_bytes.to_vec()),
+                    BOOLEAN_TYPE_ID => Value::Boolean(column_bytes[0] != 0),
+                    COUNTER_TYPE_ID => {
+                        Value::Counter(i64::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    DECIMAL_TYPE_ID => Value::Decimal(column_bytes.to_vec()),
+                    DOUBLE_TYPE_ID => {
+                        Value::Double(f64::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    FLOAT_TYPE_ID => {
+                        Value::Float(f32::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    INT_TYPE_ID => Value::Int(i32::from_be_bytes(column_bytes.try_into().unwrap())),
+                    TIMESTAMP_TYPE_ID => {
+                        Value::Timestamp(i64::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    UUID_TYPE_ID => Value::Uuid(Uuid::from_slice(column_bytes).unwrap()),
+                    VARCHAR_TYPE_ID => {
+                        Value::Varchar(String::from_utf8(column_bytes.to_vec()).unwrap())
+                    }
+                    VARINT_TYPE_ID => Value::Varint(column_bytes.to_vec()),
+                    TIMEUUID_TYPE_ID => Value::Timeuuid(Uuid::from_slice(column_bytes).unwrap()),
+                    INET_TYPE_ID => Value::Inet(column_bytes.to_vec()),
+                    DATE_TYPE_ID => {
+                        Value::Date(i32::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    TIME_TYPE_ID => {
+                        Value::Time(i64::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    SMALLINT_TYPE_ID => {
+                        Value::Smallint(i16::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    TINYINT_TYPE_ID => {
+                        Value::Tinyint(i8::from_be_bytes(column_bytes.try_into().unwrap()))
+                    }
+                    _ => unimplemented!(),
                 }
-                BLOB_TYPE_ID => Value::Blob(column_bytes.to_vec()),
-                BOOLEAN_TYPE_ID => Value::Boolean(column_bytes[0] != 0),
-                COUNTER_TYPE_ID => {
-                    Value::Counter(i64::from_be_bytes(column_bytes.try_into().unwrap()))
-                }
-                DECIMAL_TYPE_ID => Value::Decimal(column_bytes.to_vec()),
-                DOUBLE_TYPE_ID => {
-                    Value::Double(f64::from_be_bytes(column_bytes.try_into().unwrap()))
-                }
-                FLOAT_TYPE_ID => Value::Float(f32::from_be_bytes(column_bytes.try_into().unwrap())),
-                INT_TYPE_ID => Value::Int(i32::from_be_bytes(column_bytes.try_into().unwrap())),
-                TIMESTAMP_TYPE_ID => {
-                    Value::Timestamp(i64::from_be_bytes(column_bytes.try_into().unwrap()))
-                }
-                UUID_TYPE_ID => Value::Uuid(Uuid::from_slice(column_bytes).unwrap()),
-                VARCHAR_TYPE_ID => {
-                    Value::Varchar(String::from_utf8(column_bytes.to_vec()).unwrap())
-                }
-                VARINT_TYPE_ID => Value::Varint(column_bytes.to_vec()),
-                TIMEUUID_TYPE_ID => Value::Timeuuid(Uuid::from_slice(column_bytes).unwrap()),
-                INET_TYPE_ID => Value::Inet(column_bytes.to_vec()),
-                DATE_TYPE_ID => Value::Date(i32::from_be_bytes(column_bytes.try_into().unwrap())),
-                TIME_TYPE_ID => Value::Time(i64::from_be_bytes(column_bytes.try_into().unwrap())),
-                SMALLINT_TYPE_ID => {
-                    Value::Smallint(i16::from_be_bytes(column_bytes.try_into().unwrap()))
-                }
-                TINYINT_TYPE_ID => {
-                    Value::Tinyint(i8::from_be_bytes(column_bytes.try_into().unwrap()))
-                }
-                _ => unimplemented!(),
             };
 
-            columns.push(column);
+            columns.push(Some(column));
             remaining = rest;
         }
 
@@ -417,12 +487,9 @@ mod tests {
 
     #[test]
     fn test_row_equality() {
-        let row1 = Row {
-            columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)],
-        };
-        let row2 = Row {
-            columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)],
-        };
+        let row1 = Row::from_values(vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)]);
+        let row2 = Row::from_values(vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)]);
+
         assert_eq!(row1, row2);
     }
 
@@ -442,12 +509,9 @@ mod tests {
 
     #[test]
     fn test_row_inequality() {
-        let row1 = Row {
-            columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)],
-        };
-        let row2 = Row {
-            columns: vec![Value::Ascii(b"Hello".to_vec()), Value::Int(43)],
-        };
+        let row1 = Row::from_values(vec![Value::Ascii(b"Hello".to_vec()), Value::Int(42)]);
+        let row2 = Row::from_values(vec![Value::Ascii(b"Hello".to_vec()), Value::Int(43)]);
+
         assert_ne!(row1, row2);
     }
 
@@ -500,12 +564,32 @@ mod tests {
             Value::Tinyint(12),
         ];
 
+        let row = Row::from_values(values.clone());
+        let slice: Slice = row.clone().into();
+
+        println!("{:?}", slice);
+
+        let row2: Row = slice.into();
+
+        assert_eq!(row, row2);
+    }
+
+    #[test]
+    fn test_slice_to_row_with_nulls() {
+        let values = vec![
+            Some(Value::Ascii(vec![65, 66, 67])),
+            None,
+            Some(Value::Bigint(123456789)),
+            None,
+            Some(Value::Boolean(true)),
+            None,
+            Some(Value::Int(42)),
+        ];
+
         let row = Row {
             columns: values.clone(),
         };
         let slice: Slice = row.clone().into();
-
-        println!("{:?}", slice);
 
         let row2: Row = slice.into();
 

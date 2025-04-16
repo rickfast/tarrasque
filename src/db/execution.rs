@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 pub fn execute_select<'a>(
     keyspace: &Keyspace,
     parsed_query: ParsedQuery,
-) -> Result<impl Iterator<Item = Vec<Value>>, DbError> {
+) -> Result<impl Iterator<Item = Vec<Option<Value>>>, DbError> {
     let table = &parsed_query.table;
     let partition = keyspace
         .open_partition(&table.name, PartitionCreateOptions::default())
@@ -24,6 +24,11 @@ pub fn execute_select<'a>(
     .concat()
     .join("");
 
+    fn unwrap_values(row: &HashMap<String, Option<Value>>) -> HashMap<String, Value> {
+        row.iter().filter(|(_, v)| v.is_some())
+            .map(|(k, v)| (k.clone(), v.clone().unwrap())).collect()
+    }
+
     let iterator: Box<dyn DoubleEndedIterator<Item = fjall::Result<KvPair>>> =
         if prefix.is_empty().not() {
             Box::new(partition.prefix(prefix))
@@ -34,7 +39,7 @@ pub fn execute_select<'a>(
     let results = iterator
         .map(|raw_row| Row::from(raw_row.unwrap().1))
         .map(move |row| {
-            let mut columns: HashMap<String, Value> = HashMap::new();
+            let mut columns: HashMap<String, Option<Value>> = HashMap::new();
 
             for n in 0..row.columns.len() {
                 let column_name = ordered_columns[n].clone();
@@ -47,7 +52,7 @@ pub fn execute_select<'a>(
             parsed_query
                 .projection
                 .iter()
-                .map(|expr| expr.resolve(row.clone(), &HashMap::new()))
+                .map(|expr| expr.resolve(unwrap_values(&row), &HashMap::new()))
                 .collect::<Vec<_>>()
         });
 
@@ -57,7 +62,7 @@ pub fn execute_select<'a>(
 pub async fn execute_create_table(
     table_metadata: &TableMetadata,
     tables: &Arc<RwLock<Tables>>,
-) -> Result<impl Iterator<Item = Vec<Value>>, DbError> {
+) -> Result<impl Iterator<Item = Vec<Option<Value>>>, DbError> {
     tables
         .write()
         .await
@@ -66,26 +71,26 @@ pub async fn execute_create_table(
     Ok(empty())
 }
 
-type Function = fn(Vec<Value>) -> Value;
+type Function = fn(Vec<Option<Value>>) -> Value;
 
 impl ParsedExpr {
-    fn resolve(&self, row: HashMap<String, Value>, catalog: &HashMap<String, Function>) -> Value {
+    fn resolve(&self, row: HashMap<String, Value>, catalog: &HashMap<String, Function>) -> Option<Value> {
         match self {
             ParsedExpr::Column(column) => {
                 let column_name = &column.target_column;
 
-                row.get(column_name).unwrap().clone()
+                row.get(column_name).map(|value| value.to_owned())
             }
             ParsedExpr::Function(function_handle, parameters) => {
                 let function = catalog.get(function_handle).unwrap();
-                let values = parameters
+                let values: Vec<Option<Value>> = parameters
                     .iter()
                     .map(|expr| expr.resolve(row.clone(), &catalog))
                     .collect();
 
-                function(values)
+                Some(function(values))
             }
-            ParsedExpr::Literal(value) => value.clone(),
+            ParsedExpr::Literal(value) => Some(value.clone()),
         }
     }
 }
@@ -93,7 +98,7 @@ impl ParsedExpr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::data::{ColumnType, Row, Value};
+    use crate::db::data::{row, ColumnType, Row, Value};
     use crate::db::parse::ProjectedColumn;
     use crate::db::schema::{ColumnMetadata, Keyspace, Kind, TableMetadata, Tables};
     use fjall::Keyspace as FjallKeyspace;
@@ -103,19 +108,6 @@ mod tests {
     use crate::db::Database;
     
     use tokio::sync::RwLock;
-
-    #[test]
-    fn test_x() {
-        let ks = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
-        let partition = ks
-            .open_partition("farts", PartitionCreateOptions::default())
-            .unwrap();
-        let result = partition.insert("1", "blah").unwrap();
-
-        let count = partition.prefix("1").count();
-
-        assert_eq!(1, count);
-    }
 
     #[test]
     fn test_execute() {
@@ -155,12 +147,8 @@ mod tests {
         };
 
         let ks = FjallKeyspace::open(Config::new("/tmp/x")).unwrap();
-        let row_a = Row {
-            columns: vec![Value::Smallint(1), Value::Varchar("row1".to_string())],
-        };
-        let row_b = Row {
-            columns: vec![Value::Smallint(2), Value::Varchar("row2".to_string())],
-        };
+        let row_a = row![Value::Smallint(1), Value::Varchar("row1".to_string())];
+        let row_b = row![Value::Smallint(2), Value::Varchar("row2".to_string())];
         let partition = ks
             .open_partition(&table.name, PartitionCreateOptions::default())
             .unwrap();
@@ -199,8 +187,8 @@ mod tests {
         let row = result_iter.next().unwrap();
 
         assert_eq!(row.len(), 2);
-        assert_eq!(row[0], Value::Smallint(1));
-        assert_eq!(row[1], Value::Varchar("row1".to_string()));
+        assert_eq!(row[0], Some(Value::Smallint(1)));
+        assert_eq!(row[1], Some(Value::Varchar("row1".to_string())));
     }
 
     #[test]

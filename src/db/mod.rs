@@ -27,7 +27,7 @@ pub struct Database<'db> {
 }
 
 pub struct Results {
-    pub result: Box<dyn Iterator<Item = Vec<Value>>>,
+    pub result: Box<dyn Iterator<Item = Vec<Option<Value>>>>,
 }
 
 impl<'db> Database<'_> {

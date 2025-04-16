@@ -75,7 +75,7 @@ async fn exchange(
                         let iterator = result.result;
                         let items = iterator
                             .map(|row| Row {
-                                columns: row.into_iter().collect::<Vec<Value>>(),
+                                columns: row,
                             })
                             .collect::<Vec<Row>>();
 
