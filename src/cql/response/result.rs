@@ -1,5 +1,5 @@
 use crate::db::data::{ColumnType, Row, Value};
-use crate::serde::writer::{bool, bytes, double, float, int, long, short, string, tinyint};
+use crate::serde::writer::{bool, bytes, int, string};
 use bitflags::bitflags;
 use bytes::BytesMut;
 
@@ -87,25 +87,30 @@ pub(crate) fn encode(src: Result, dst: &mut BytesMut) -> anyhow::Result<()> {
             for row in rows {
                 for column in row.columns {
                     match column {
-                        Value::Int(value) => int!(dst, value),
-                        Value::Ascii(value) => bytes!(dst, value.as_slice()),
-                        Value::Bigint(value) => long!(dst, value),
-                        Value::Blob(value) => bytes!(dst, value.as_slice()),
-                        Value::Boolean(value) => bool!(dst, value),
-                        Value::Counter(_) => {}
-                        Value::Decimal(_) => {}
-                        Value::Double(value) => double!(dst, value),
-                        Value::Float(value) => float!(dst, value),
-                        Value::Timestamp(value) => long!(dst, value),
-                        Value::Uuid(uuid) => bytes!(dst, uuid.as_bytes().as_slice()),
-                        Value::Varchar(value) => string!(dst, value),
-                        Value::Varint(_) => {}
-                        Value::Timeuuid(_) => {}
-                        Value::Inet(_) => {}
-                        Value::Date(value) => int!(dst, value),
-                        Value::Time(_) => {}
-                        Value::Smallint(value) => short!(dst, value),
-                        Value::Tinyint(value) => tinyint!(dst, value),
+                        None => {
+                            int!(dst, 0);
+                        }
+                        Some(column) => match column {
+                            Value::Int(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Ascii(value) => bytes!(dst, value.as_slice()),
+                            Value::Bigint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Blob(value) => bytes!(dst, value.as_slice()),
+                            Value::Boolean(value) => bytes!(dst, &[value as u8]),
+                            Value::Counter(_) => {}
+                            Value::Decimal(_) => {}
+                            Value::Double(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Float(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Timestamp(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Uuid(uuid) => bytes!(dst, uuid.as_bytes().as_slice()),
+                            Value::Varchar(value) => bytes!(dst, value.as_bytes()),
+                            Value::Varint(_) => {}
+                            Value::Timeuuid(_) => {}
+                            Value::Inet(_) => {}
+                            Value::Date(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Time(_) => {}
+                            Value::Smallint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Tinyint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                        },
                     }
                 }
             }

@@ -13,22 +13,22 @@ pub struct Query {
 
 #[derive(Debug, Clone)]
 pub(crate) struct QueryOptions {
-    consistency: Consistency,
-    values: Option<Values>,
-    skip_metadata: bool,
-    page_size: Option<i32>,
-    paging_state: Option<Bytes>,
-    timestamp: Option<i64>,
+    pub consistency: Consistency,
+    pub values: Option<Values>,
+    pub skip_metadata: bool,
+    pub page_size: Option<i32>,
+    pub paging_state: Option<Bytes>,
+    pub timestamp: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
-enum Values {
+pub enum Values {
     Unnamed(Vec<Value>),
     Named(HashMap<String, Value>),
 }
 
 #[derive(Debug, Clone)]
-enum Consistency {
+pub enum Consistency {
     Any,
     One,
     Two,

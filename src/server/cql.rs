@@ -7,7 +7,7 @@ use crate::cql::codec::CqlFrameCodec;
 use crate::cql::operation::Operation;
 use crate::cql::response::error::Error as CqlError;
 use crate::cql::response::result::{Flags, Metadata, Result as CqlResult};
-use crate::db::data::{Row, Value};
+use crate::db::data::Row;
 use crate::db::error::DbError;
 use crate::db::Database;
 use fjall::{Config, Keyspace};
@@ -74,9 +74,7 @@ async fn exchange(
                     Ok(result) => {
                         let iterator = result.result;
                         let items = iterator
-                            .map(|row| Row {
-                                columns: row.into_iter().collect::<Vec<Value>>(),
-                            })
+                            .map(|row| Row { columns: row })
                             .collect::<Vec<Row>>();
 
                         let result = CqlResult::Rows {

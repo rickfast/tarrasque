@@ -1,3 +1,4 @@
+use crate::db::builtins::{eq, neq, FilterFunction};
 use crate::db::data::{ColumnType, Value};
 use crate::db::dialect::CassandraDialect;
 use crate::db::error::{DbError, ErrorCode};
@@ -9,6 +10,7 @@ use sqlparser::ast::{
     TableFactor,
 };
 use sqlparser::parser::Parser;
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -24,9 +26,15 @@ pub struct ParsedQuery {
     pub partition_key: Vec<String>,
     pub clustering_key: Vec<String>,
     pub projection: Vec<ParsedExpr>,
-    pub filters: Vec<ParsedExpr>,
+    pub filters: HashMap<String, ParsedFilter>,
     pub table: TableMetadata,
     pub column_count: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedFilter {
+    pub filter: FilterFunction,
+    pub args: Vec<ParsedExpr>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +49,7 @@ pub struct ParsedInsert {
 pub enum ParsedExpr {
     Column(ProjectedColumn),
     Function(FunctionHandle, Vec<ParsedExpr>),
-    Literal(Value),
+    Literal(Option<Value>),
 }
 
 pub type FunctionHandle = String;
@@ -74,6 +82,7 @@ pub async fn parse<'a>(
     match statement {
         Statement::CreateTable(create_table) => parse_create_table(&create_table),
         Statement::Query(query) => parse_select(table_metadata, &query).await,
+        Statement::Insert(insert) => parse_insert(table_metadata, &insert).await,
         _ => {
             unimplemented!()
         }
@@ -91,10 +100,12 @@ async fn parse_select(
             .map_err(|error| DbError::new(ErrorCode::Invalid, "".to_string()))?;
         let projection: Vec<ParsedExpr> = derive_projection(&select, &table)
             .map_err(|error| DbError::new(ErrorCode::Invalid, "".to_string()))?;
+        let (filters, partition_key) = derive_filters(&select, &table)
+            .map_err(|error| DbError::new(ErrorCode::Invalid, "".to_string()))?;
 
         Ok(ParsedStatement::Select(ParsedQuery {
-            filters: vec![],
-            partition_key: vec![],
+            filters,
+            partition_key,
             clustering_key: vec![],
             projection: projection.clone(),
             table: table.clone(),
@@ -107,7 +118,7 @@ async fn parse_select(
 
 async fn parse_insert(
     table_metadata: &Arc<RwLock<Tables>>,
-    insert: &Box<sqlparser::ast::Insert>,
+    insert: &sqlparser::ast::Insert,
 ) -> Result<ParsedStatement, DbError> {
     let table_name = insert.table_name.to_string();
     let table = table_metadata
@@ -152,7 +163,14 @@ async fn parse_insert(
             }
         };
         let value = match value_expr {
-            Expr::Value(val) => ParsedExpr::Literal(Value::from_sql_value(val)),
+            Expr::Value(val) => {
+                if column_metadata.kind == Kind::PartitionKey {
+                    partition_key.push(format!("{}", val));
+                } else if column_metadata.kind == Kind::Clustering {
+                    clustering_key.push(format!("{}", val));
+                }
+                ParsedExpr::Literal(Value::from_sql_value(column_metadata.column_type, val))
+            }
             _ => {
                 return Err(DbError::new(
                     ErrorCode::Invalid,
@@ -224,6 +242,83 @@ fn parse_create_table(create_table: &CreateTable) -> Result<ParsedStatement, DbE
     }))
 }
 
+fn derive_filters(
+    select: &Box<Select>,
+    table: &TableMetadata,
+) -> anyhow::Result<(HashMap<String, ParsedFilter>, Vec<String>)> {
+    let mut filters = HashMap::new();
+    let mut partition_key: Vec<String> = vec![];
+
+    if let Some(where_clause) = &select.selection {
+        match where_clause {
+            Expr::BinaryOp { left, op, right } => {
+                if let Expr::Identifier(ident) = &**left {
+                    let column_name = ident.value.clone();
+                    let is_partition_key = table.partition_key.contains(&column_name);
+                    let column_metadata = table
+                        .columns
+                        .get(&column_name)
+                        .ok_or_else(|| anyhow!("Column not found: {}", column_name))?;
+
+                    let value = match &**right {
+                        Expr::Value(val) => {
+                            if is_partition_key {
+                                partition_key.push(format!("{}", val));
+                            }
+
+                            ParsedExpr::Literal(Value::from_sql_value(
+                                column_metadata.column_type,
+                                val,
+                            ))
+                        }
+                        Expr::Identifier(id) => ParsedExpr::Column(ProjectedColumn {
+                            target_column: id.value.clone(),
+                            resolved_name: id.value.clone(),
+                            column_metadata: table
+                                .columns
+                                .get(&id.value)
+                                .ok_or_else(|| anyhow!("Column not found: {}", id.value))?
+                                .clone(),
+                        }),
+                        _ => return Err(anyhow!("Unsupported filter expression")),
+                    };
+
+                    let filter_function = match op {
+                        BinaryOperator::Eq => eq,
+                        BinaryOperator::NotEq => neq,
+                        BinaryOperator::Gt => unimplemented!("gt"),
+                        BinaryOperator::GtEq => unimplemented!(),
+                        BinaryOperator::Lt => unimplemented!(),
+                        BinaryOperator::LtEq => unimplemented!(),
+                        _ => return Err(anyhow!("Unsupported operator")),
+                    };
+
+                    filters.insert(
+                        column_name.clone(),
+                        ParsedFilter {
+                            filter: filter_function,
+                            args: vec![
+                                ParsedExpr::Column(ProjectedColumn {
+                                    target_column: column_name.clone(),
+                                    resolved_name: column_name,
+                                    column_metadata: column_metadata.clone(),
+                                }),
+                                value,
+                            ],
+                        },
+                    );
+                    Ok((filters, partition_key))
+                } else {
+                    Err(anyhow!("Left side of filter must be a column"))
+                }
+            }
+            _ => Err(anyhow!("Unsupported where clause expression")),
+        }
+    } else {
+        Ok((filters, partition_key))
+    }
+}
+
 fn derive_projection(
     select: &Box<Select>,
     table: &TableMetadata,
@@ -252,6 +347,7 @@ fn derive_projection(
                 Expr::Identifier(ident) => {
                     let column_name = ident.value.clone();
                     let column_metadata = table.columns.get(&column_name);
+
                     match column_metadata {
                         Some(metadata) => Ok(ParsedExpr::Column(ProjectedColumn {
                             target_column: column_name.clone(),
