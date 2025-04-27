@@ -1,10 +1,10 @@
-use crate::db::builtins::{eq, FilterFunction, Function};
+use crate::db::builtins::Function;
 use crate::db::data::{Row, Value};
 use crate::db::error::{DbError, ErrorCode};
 use crate::db::parse::{ParsedExpr, ParsedInsert, ParsedQuery};
 use crate::db::schema::{TableMetadata, Tables};
 use fjall::{Keyspace, KvPair, PartitionCreateOptions};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::iter::empty;
 use std::ops::Not;
 use std::sync::Arc;

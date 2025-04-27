@@ -1,5 +1,5 @@
 use crate::db::data::{ColumnType, Row, Value};
-use crate::serde::writer::{bool, bytes, double, float, int, long, short, string, tinyint};
+use crate::serde::writer::{bool, bytes, int, string};
 use bitflags::bitflags;
 use bytes::BytesMut;
 

@@ -34,9 +34,6 @@ macro_rules! tinyint {
 }
 
 pub(crate) use int;
-pub(crate) use long;
-pub(crate) use short;
-pub(crate) use tinyint;
 
 macro_rules! float {
     ($bytes:expr, $value:expr) => {{
@@ -52,8 +49,6 @@ macro_rules! double {
     }};
 }
 
-pub(crate) use double;
-pub(crate) use float;
 
 macro_rules! bytes {
     ($bytes:expr,$value:expr) => {{

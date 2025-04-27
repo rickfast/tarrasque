@@ -1,7 +1,6 @@
 use fjall::Slice;
 use sqlparser::ast::Value as SqlValue;
 use std::fmt::Debug;
-use std::ops::Deref;
 use uuid::Uuid;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -202,7 +201,6 @@ macro_rules! row {
     };
 }
 
-pub(crate) use row;
 
 impl Row {
     fn new() -> Self {
