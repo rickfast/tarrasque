@@ -171,4 +171,89 @@ mod tests {
         assert_eq!(row2[2], None); // Null value
         assert_eq!(row2[3], None); // Null value
     }
+
+    #[tokio::test]
+    async fn query_single_record() {
+        // Step 1: Set up the database
+        let tables = Arc::new(RwLock::new(Tables::new()));
+        let fjall = FjallKeyspace::open(Config::new("/tmp/test_db_single")).unwrap();
+        let database = Database {
+            name: "test_db",
+            tables: &tables,
+            fjall: &fjall,
+        };
+
+        // Step 2: Create a table
+        let create_table_query = "
+            CREATE TABLE users (
+                id INT PRIMARY KEY,
+                name VARCHAR,
+                age INT,
+                is_active BOOLEAN
+            )
+        ";
+        let create_result = database
+            .query(Query {
+                query: create_table_query.to_string(),
+                query_options: QueryOptions {
+                    consistency: Consistency::One,
+                    values: None,
+                    skip_metadata: false,
+                    page_size: None,
+                    paging_state: None,
+                    timestamp: None,
+                },
+            })
+            .await;
+        assert!(create_result.is_ok());
+
+        // Step 3: Insert data
+        let insert_query = "
+            INSERT INTO users (id, name, age, is_active)
+            VALUES (1, 'Alice', 30, true)
+        ";
+        let insert_result = database
+            .query(Query {
+                query: insert_query.to_string(),
+                query_options: QueryOptions {
+                    consistency: Consistency::One,
+                    values: None,
+                    skip_metadata: false,
+                    page_size: None,
+                    paging_state: None,
+                    timestamp: None,
+                },
+            })
+            .await;
+        assert!(insert_result.is_ok());
+
+        // Step 4: Query a single record
+        let select_query = "SELECT id, name, age, is_active FROM users WHERE id = 1";
+        let select_result = database
+            .query(Query {
+                query: select_query.to_string(),
+                query_options: QueryOptions {
+                    consistency: Consistency::One,
+                    values: None,
+                    skip_metadata: false,
+                    page_size: None,
+                    paging_state: None,
+                    timestamp: None,
+                },
+            })
+            .await;
+        assert!(select_result.is_ok());
+
+        let mut result_iter = select_result.unwrap().result;
+
+        // Step 5: Verify the data
+        let row = result_iter.next().unwrap();
+        assert_eq!(row[0], Some(Value::Int(1)));
+        assert_eq!(row[1], Some(Value::Varchar("Alice".to_string())));
+        assert_eq!(row[2], Some(Value::Int(30)));
+        assert_eq!(row[3], Some(Value::Boolean(true)));
+
+        // Ensure no additional rows are returned
+        assert!(result_iter.next().is_none());
+    }
 }

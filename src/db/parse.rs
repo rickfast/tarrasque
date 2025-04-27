@@ -263,7 +263,7 @@ fn derive_filters(
                     let value = match &**right {
                         Expr::Value(val) => {
                             if is_partition_key {
-                                partition_key.push(column_name.clone());
+                                partition_key.push(format!("{}", val));
                             }
 
                             ParsedExpr::Literal(Value::from_sql_value(

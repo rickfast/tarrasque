@@ -201,6 +201,7 @@ macro_rules! row {
     };
 }
 
+pub(crate) use row;
 
 impl Row {
     fn new() -> Self {
