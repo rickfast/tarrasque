@@ -89,30 +89,28 @@ pub(crate) fn encode(src: Result, dst: &mut BytesMut) -> anyhow::Result<()> {
                     match column {
                         None => {
                             int!(dst, 0);
-                        },
-                        Some(column) => {
-                            match column {
-                                Value::Int(value) => bytes!(dst, value.to_be_bytes().as_slice()),
-                                Value::Ascii(value) => bytes!(dst, value.as_slice()),
-                                Value::Bigint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
-                                Value::Blob(value) => bytes!(dst, value.as_slice()),
-                                Value::Boolean(value) => bytes!(dst, &[value as u8]),
-                                Value::Counter(_) => {}
-                                Value::Decimal(_) => {}
-                                Value::Double(value) => bytes!(dst, value.to_be_bytes().as_slice()),
-                                Value::Float(value) => bytes!(dst, value.to_be_bytes().as_slice()),
-                                Value::Timestamp(value) => bytes!(dst, value.to_be_bytes().as_slice()),
-                                Value::Uuid(uuid) => bytes!(dst, uuid.as_bytes().as_slice()),
-                                Value::Varchar(value) => bytes!(dst, value.as_bytes()),
-                                Value::Varint(_) => {}
-                                Value::Timeuuid(_) => {}
-                                Value::Inet(_) => {}
-                                Value::Date(value) => bytes!(dst, value.to_be_bytes().as_slice()),
-                                Value::Time(_) => {}
-                                Value::Smallint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
-                                Value::Tinyint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
-                            }
                         }
+                        Some(column) => match column {
+                            Value::Int(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Ascii(value) => bytes!(dst, value.as_slice()),
+                            Value::Bigint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Blob(value) => bytes!(dst, value.as_slice()),
+                            Value::Boolean(value) => bytes!(dst, &[value as u8]),
+                            Value::Counter(_) => {}
+                            Value::Decimal(_) => {}
+                            Value::Double(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Float(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Timestamp(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Uuid(uuid) => bytes!(dst, uuid.as_bytes().as_slice()),
+                            Value::Varchar(value) => bytes!(dst, value.as_bytes()),
+                            Value::Varint(_) => {}
+                            Value::Timeuuid(_) => {}
+                            Value::Inet(_) => {}
+                            Value::Date(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Time(_) => {}
+                            Value::Smallint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                            Value::Tinyint(value) => bytes!(dst, value.to_be_bytes().as_slice()),
+                        },
                     }
                 }
             }

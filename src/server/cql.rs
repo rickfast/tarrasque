@@ -74,9 +74,7 @@ async fn exchange(
                     Ok(result) => {
                         let iterator = result.result;
                         let items = iterator
-                            .map(|row| Row {
-                                columns: row,
-                            })
+                            .map(|row| Row { columns: row })
                             .collect::<Vec<Row>>();
 
                         let result = CqlResult::Rows {

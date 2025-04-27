@@ -124,24 +124,18 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn from_sql_value(value: &SqlValue) -> Self {
+    pub fn from_sql_value(column_type: ColumnType, value: &SqlValue) -> Option<Value> {
         match value {
-            SqlValue::Number(num, _) => {
-                if let Ok(i) = num.parse::<i64>() {
-                    Value::Bigint(i)
-                } else if let Ok(i) = num.parse::<i32>() {
-                    Value::Int(i)
-                } else if let Ok(i) = num.parse::<i16>() {
-                    Value::Smallint(i)
-                } else if let Ok(i) = num.parse::<i8>() {
-                    Value::Tinyint(i)
-                } else {
-                    Value::Varchar(num.clone())
-                }
-            }
-            SqlValue::SingleQuotedString(s) => Value::Varchar(s.clone()),
-            SqlValue::Boolean(b) => Value::Boolean(*b),
-            SqlValue::Null => Value::Ascii(vec![]),
+            SqlValue::Number(num, _) => match column_type {
+                ColumnType::Bigint => Some(Value::Bigint(num.parse::<i64>().unwrap())),
+                ColumnType::Int => Some(Value::Int(num.parse::<i32>().unwrap())),
+                ColumnType::Smallint => Some(Value::Smallint(num.parse::<i16>().unwrap())),
+                ColumnType::Tinyint => Some(Value::Tinyint(num.parse::<i8>().unwrap())),
+                _ => unimplemented!(),
+            },
+            SqlValue::SingleQuotedString(s) => Some(Value::Varchar(s.clone())),
+            SqlValue::Boolean(b) => Some(Value::Boolean(*b)),
+            SqlValue::Null => None,
             _ => unimplemented!(),
         }
     }
@@ -224,33 +218,6 @@ impl Row {
     }
 }
 
-struct NullableValue(Option<Value>);
-
-// impl Into<Vec<u8>> for NullableValue {
-//     fn into(self) -> Vec<u8> {
-//         match self {
-//             Some(v) => {
-//                 let mut bytes = v.into();
-//                 bytes.insert(0, 1);
-//                 bytes
-//             }
-//         }
-//     }
-// }
-
-impl Deref for NullableValue {
-    type Target = Option<Value>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-fn tests() {
-    let v = NullableValue(Some(Value::Int(42)));
-
-}
-
 impl Into<Vec<u8>> for Value {
     fn into(self) -> Vec<u8> {
         let type_ = self.column_type().type_identifier().to_be_bytes();
@@ -315,6 +282,8 @@ const NULL: u8 = 0;
 impl Into<Slice> for Row {
     fn into(self) -> Slice {
         let mut bytes = Vec::new();
+
+        println!("Writing to slice: {:?}", self);
 
         for value in self.columns {
             match value {
@@ -425,7 +394,11 @@ impl From<Slice> for Row {
             remaining = rest;
         }
 
-        Row { columns }
+        let row = Row { columns };
+
+        println!("Reading from slice: {:?}", row);
+
+        row
     }
 }
 
